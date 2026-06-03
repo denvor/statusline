@@ -1,0 +1,231 @@
+# Claude Code Status Line
+
+A PowerShell-powered custom status line for [Claude Code](https://code.claude.com/docs/en/overview), designed for users of **third-party API providers** (DeepSeek, etc.). Displays project, model, context usage, token consumption, and **custom-priced cost** — all in a single line at the bottom of your terminal.
+
+## Preview
+
+> **Note:** The output uses ANSI color codes that render directly in your terminal. What you see below is the **rendered visual effect** — not raw text.
+
+```
+┌─ Status bar (bottom of Claude Code) ─────────────────────────────────────────────┐
+│ [PR] hello │ DeepSeek V4 Pro T H │ ========------------ 42% │ ctx: 18.5K/3.2K     │
+│ /200K │ call: i5K o1.2K @github │ time 5m │ ¥0.028                             │
+└──────────────────────────────────────────────────────────────────────────────────┘
+```
+
+Each segment is color-coded for quick scanning:
+
+| Segment | Example | Color |
+|---------|---------|-------|
+| Project | `[PR] hello` | Cyan bold |
+| Model + thinking/effort | `DeepSeek V4 Pro` `T` `H` | Magenta / Cyan / Yellow |
+| Context bar | `========------------` | Green → Yellow → Red as usage grows |
+| Context % | `42%` | Same as bar, bold |
+| Context occupancy | `ctx: 18.5K/3.2K` | Bright white |
+| Context limit | `/200K` | Same color as bar, bold |
+| Per-call tokens | `call: i5K o1.2K` | Bright white |
+| Git info | `git:main @github` | Cyan |
+| Session time | `time 5m` | Blue |
+| Cost | `¥0.028` | Green → Yellow → Red with thresholds |
+
+## Features
+
+- **Project name** — auto-detected from working directory
+- **Model display** — beautified names for DeepSeek & Claude model families
+- **Context progress bar** — 20-char bar, color shifts green → yellow → red at 50% and 75%
+- **Token details** — context window occupancy (`ctx:`) and per-call usage (`call:`)
+- **Custom pricing** — read from `statusline.ini`, independent prices for input / output / cache writes / cache reads
+- **Multi-currency** — `¥` (CNY) or `$` (USD)
+- **Session cost accumulation** — token counts persist across calls, auto-reset on new session
+- **Debounce-safe** — detects and skips duplicate updates from Claude Code's 300ms debounce
+- **Git info** — branch name + remote host (e.g., `@github`)
+- **Worktree aware** — shows `[WT]` prefix inside git worktrees
+- **Session duration** — displays elapsed time (e.g., `time 5m`), from `cost.total_duration_ms`
+- **Zero dependencies** — pure PowerShell, no `jq` or Node.js required
+
+## Requirements
+
+- **Windows**: PowerShell 5.1+
+- **Mac / Linux**: bash 3.2+, [jq](https://jqlang.github.io/jq/) (`brew install jq` / `apt install jq`)
+- [Claude Code](https://code.claude.com/docs/en/overview) v2.1.90+
+
+## Quick Start
+
+### 1. Place the files
+
+| Platform | Files to copy |
+|----------|--------------|
+| Windows | `statusline.ps1` + `statusline.ini` |
+| Mac / Linux | `statusline.sh` + `statusline.ini` |
+
+Copy them to `~/.claude/` or your project root.
+
+On Mac / Linux, also make the script executable:
+
+```bash
+chmod +x ~/.claude/statusline.sh
+```
+
+### 2. Configure Claude Code
+
+Add the following `"statusLine"` key to your **existing** `~/.claude/settings.json` (all projects) or `.claude/settings.json` (current project only). Do NOT replace the entire file — merge it alongside your other settings:
+
+**Windows:**
+```jsonc
+"statusLine": {
+  "type": "command",
+  "command": "powershell.exe -NoProfile -File \"C:/Users/your-username/.claude/statusline.ps1\"",
+  "padding": 0
+}
+```
+
+**Mac / Linux:**
+```jsonc
+"statusLine": {
+  "type": "command",
+  "command": "$HOME/.claude/statusline.sh",
+  "padding": 0
+}
+```
+
+Replace `your-username` (Windows) with your actual username.
+
+### 3. Set your pricing
+
+Edit `statusline.ini`:
+
+```ini
+# 默认定价 — 未匹配到具体模型时使用
+[default]
+input_price=3.00
+output_price=6.00
+cache_write_price=3.00
+cache_read_price=0.025
+currency=CNY
+
+# 模型专属定价 — 按 Claude Code 传入的模型 ID 精确匹配
+[deepseek-v4-pro]
+input_price=3.00
+output_price=6.00
+cache_write_price=3.00
+cache_read_price=0.025
+currency=CNY
+```
+
+- `currency=CNY` → `¥` symbol
+- `currency=USD` → `$` symbol
+- 定价按 `[模型ID]` 分段，脚本根据当前使用的模型自动匹配
+- 未匹配到时回退到 `[default]` 段
+
+### 4. Send any message in Claude Code
+
+The status bar appears at the bottom after the first interaction.
+
+## Configuration Reference
+
+### `statusline.ini`
+
+定价通过 `[模型ID]` 分段配置，脚本根据当前模型自动匹配。段名必须与 Claude Code 传入的 `model.display_name` 原始值完全一致（如 `deepseek-v4-pro`）。
+
+| Key | Description | Default |
+|-----|-------------|---------|
+| `[default]` | 未匹配到具体模型时的回退定价 | — |
+| `input_price` | Price per 1M input tokens | `3.00` |
+| `output_price` | Price per 1M output tokens | `6.00` |
+| `cache_write_price` | Price per 1M cache-write tokens | `3.00` |
+| `cache_read_price` | Price per 1M cache-read tokens | `0.025` |
+| `currency` | Display currency: `CNY` or `USD` | `CNY` |
+
+每个 `[模型ID]` 段内可独立配置以上 5 个 key。如果 INI 文件缺失，使用硬编码默认值。
+
+### Token types
+
+| Token type | When charged |
+|------------|-------------|
+| Input | Every prompt sent to the model |
+| Output | Every token generated by the model |
+| Cache write | Tokens stored in Claude's prompt cache |
+| Cache read | Tokens retrieved from cache (typically 1-25% of input price) |
+
+## Output Layout
+
+```
+[icon] project │ model T L │ ========------ 42% │ ctx: 18.5K/3.2K /200K │ call: i5K o1.2K git:main @github │ time 5m │ ¥0.028
+  ①       ②      ③  ④             ⑤                         ⑥               ⑦                   ⑧            ⑨
+```
+
+| # | Field | Rendered as | Color |
+|---|-------|------------|-------|
+| ① | Project | `[PR] hello` | Cyan bold |
+| ② | Model + mode | `DeepSeek V4 Pro` `T` `H` | Magenta / Cyan / Yellow |
+| ③ | Progress bar + % | `========------------ 42%` | Green→Yellow→Red |
+| ④ | Context occupancy | `ctx: 18.5K/3.2K` | Bright white |
+| ⑤ | Context limit | `/200K` | Matches bar color, bold |
+| ⑥ | Per-call tokens | `call: i5K o1.2K` | Bright white |
+| ⑦ | Git | `git:main @github` | Cyan |
+| ⑧ | Session time | `time 5m` | Blue |
+| ⑨ | Accumulated cost | `¥0.028` | Green→Yellow→Red |
+
+## How It Works
+
+Claude Code pipes a JSON snapshot to the script via stdin after each assistant message. The script:
+
+1. Parses the JSON (`ConvertFrom-Json`)
+2. Extracts per-call token counts from `context_window.current_usage`
+3. Reads/writes cumulative totals in `statusline_state.json` (keyed by `session_id`)
+4. Loads pricing from `statusline.ini` (falls back to defaults if missing)
+5. Computes cost: `sum(cumulative_tokens / 1,000,000 × price_per_million)` across all four token types
+6. Skips accumulation when `current_usage` is unchanged (debounce guard)
+7. Outputs a single ANSI-colored line to stdout
+
+The state file auto-resets when the session ID changes.
+
+## Files
+
+| File | Role |
+|------|------|
+| `statusline.ps1` | Windows script — reads stdin, accumulates tokens, outputs status line |
+| `statusline.sh` | Mac / Linux script — same functionality, uses jq for JSON parsing |
+| `statusline.ini` | User-editable pricing configuration |
+| `statusline_state.json` | Auto-generated — persists cumulative token counts per session |
+
+## FAQ
+
+### How is the cost calculated?
+
+The cost is based on **4 types of tokens × their respective unit prices**:
+
+| Token type | Data source | INI key |
+|-----------|-------------|---------|
+| Input | `current_usage.input_tokens` | `input_price` |
+| Output | `current_usage.output_tokens` | `output_price` |
+| Cache write | `current_usage.cache_creation_input_tokens` | `cache_write_price` |
+| Cache read | `current_usage.cache_read_input_tokens` | `cache_read_price` |
+
+Formula: `Σ(cumulative_tokens / 1,000,000 × price_per_million)`
+
+Unit prices are read from `statusline.ini`, matched by the current model's `[section]`, falling back to `[default]` if no match.
+
+### Are tokens accumulated from the beginning of the project or just this session?
+
+**Per session.** Claude Code generates a new `session_id` each time it starts. The script persists cumulative counts in `statusline_state.json`, keyed by `session_id`:
+
+- **Within the same session**: tokens keep accumulating (with dedup to prevent double-counting)
+- **New session** (close and reopen Claude Code): detects `session_id` change → auto-reset, starts from zero
+
+### What happens when I resume a session?
+
+Resuming restores the **same** `session_id`, so the script continues accumulating from where you left off.
+
+1. Claude Code passes the same `session_id` on resume
+2. Script matches it against `statusline_state.json` → same session
+3. Previous cumulative totals are loaded and new tokens are added on top
+4. Cost = previous accumulated cost + new cost
+
+In short: closing and resuming keeps the counter going. Only a brand-new session resets it.
+
+> If `statusline_state.json` is manually deleted or corrupted, the accumulated history is lost and counting restarts from zero.
+
+## License
+
+MIT
