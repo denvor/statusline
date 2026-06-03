@@ -1,6 +1,8 @@
 # Claude Code Status Line
 
-A PowerShell-powered custom status line for [Claude Code](https://code.claude.com/docs/en/overview), designed for users of **third-party API providers** (DeepSeek, etc.). Displays project, model, context usage, token consumption, and **custom-priced cost** — all in a single line at the bottom of your terminal.
+[![zh-CN](https://img.shields.io/badge/语言-中文-blue.svg)](README_zh.md)
+
+A PowerShell / bash custom status line for [Claude Code](https://code.claude.com/docs/en/overview), designed for users of **third-party API providers** (DeepSeek, etc.). Displays project, model, context usage, token consumption, and **custom-priced cost** — all in a single line at the bottom of your terminal.
 
 ## Preview
 
@@ -95,7 +97,7 @@ Replace `your-username` (Windows) with your actual username.
 Edit `statusline.ini`:
 
 ```ini
-# 默认定价 — 未匹配到具体模型时使用
+# Default pricing — used when no model-specific section matches
 [default]
 input_price=3.00
 output_price=6.00
@@ -103,7 +105,7 @@ cache_write_price=3.00
 cache_read_price=0.025
 currency=CNY
 
-# 模型专属定价 — 按 Claude Code 传入的模型 ID 精确匹配
+# Model-specific pricing — matched by Claude Code model ID
 [deepseek-v4-pro]
 input_price=3.00
 output_price=6.00
@@ -114,8 +116,8 @@ currency=CNY
 
 - `currency=CNY` → `¥` symbol
 - `currency=USD` → `$` symbol
-- 定价按 `[模型ID]` 分段，脚本根据当前使用的模型自动匹配
-- 未匹配到时回退到 `[default]` 段
+- Pricing is matched by `[model_id]` section — the script looks up the current model automatically
+- Falls back to `[default]` when no specific section matches
 
 ### 4. Send any message in Claude Code
 
@@ -125,18 +127,18 @@ The status bar appears at the bottom after the first interaction.
 
 ### `statusline.ini`
 
-定价通过 `[模型ID]` 分段配置，脚本根据当前模型自动匹配。段名必须与 Claude Code 传入的 `model.display_name` 原始值完全一致（如 `deepseek-v4-pro`）。
+Pricing is configured per-model via section headers. The section name must match the exact `model.display_name` value passed by Claude Code (e.g., `deepseek-v4-pro`).
 
 | Key | Description | Default |
 |-----|-------------|---------|
-| `[default]` | 未匹配到具体模型时的回退定价 | — |
+| `[default]` | Fallback pricing when no model section matches | — |
 | `input_price` | Price per 1M input tokens | `3.00` |
 | `output_price` | Price per 1M output tokens | `6.00` |
 | `cache_write_price` | Price per 1M cache-write tokens | `3.00` |
 | `cache_read_price` | Price per 1M cache-read tokens | `0.025` |
 | `currency` | Display currency: `CNY` or `USD` | `CNY` |
 
-每个 `[模型ID]` 段内可独立配置以上 5 个 key。如果 INI 文件缺失，使用硬编码默认值。
+Each `[model_id]` section can independently configure the 5 keys above. If the INI file is missing, hardcoded defaults are used.
 
 ### Token types
 
