@@ -202,7 +202,6 @@ $costValue += ($cumCR  / 1000000.0) * $pricing['cache_read_price']
 # Fallback to Claude Code's built-in cost if our calculation is 0 but CC reports cost
 if ($costValue -eq 0.0 -and $data.cost.total_cost_usd) {
     $costValue = [double]$data.cost.total_cost_usd
-    $currencySymbol = '$'
 }
 
 # Session duration

@@ -201,7 +201,6 @@ cost_value=$(awk -v ci="$cum_in" -v co="$cum_out" -v cw="$cum_cw" -v cr="$cum_cr
 cost_is_zero=$(awk -v c="$cost_value" 'BEGIN { print (c == 0.0) ? 1 : 0 }')
 if [ "$cost_is_zero" -eq 1 ] && [ "$cc_cost" != "0" ] && [ -n "$cc_cost" ]; then
     cost_value="$cc_cost"
-    currency_symbol='$'
 fi
 
 # ── 7. Duration formatting ───────────────────────────────────────────
