@@ -4,11 +4,6 @@ Behavioral guidelines to reduce common LLM coding mistakes. Merge with project-s
 
 **Tradeoff:** These guidelines bias toward caution over speed. For trivial tasks, use judgment.
 
-## 对话语言
-- 默认使用中文对话和思考
-- 代码注释默认使用中文
-- 用户消息中的错误描述、需求说明等用中文理解，技术术语可保留英文
-
 ## 1. Think Before Coding
 
 **Don't assume. Don't hide confusion. Surface tradeoffs.**

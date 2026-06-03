@@ -1,6 +1,6 @@
 # Claude Code 状态栏美化脚本
 
-[![en](https://img.shields.io/badge/lang-English-red.svg)](readme.md)
+[![en](https://img.shields.io/badge/lang-English-red.svg)](README.md)
 
 基于 PowerShell / bash 的 [Claude Code](https://code.claude.com/docs/zh-CN/overview) 自定义状态栏，专为**第三方 API 用户**（如 DeepSeek）设计。在终端底部单行显示项目名、模型名、上下文用量、Token 消耗和**自定义定价的费用**。
 
