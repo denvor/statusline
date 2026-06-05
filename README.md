@@ -132,6 +132,8 @@ The status bar appears at the bottom after the first interaction.
 
 Pricing is configured per-model via section headers. The section name must match the exact `model.display_name` value passed by Claude Code (e.g., `deepseek-v4-pro`).
 
+> **Third-party API note:** Some providers append a `[1m]` or `[1M]` suffix to indicate a 1M context window. The script strips this suffix before matching, so the INI section should use the base model name (e.g., `[deepseek-v4-pro]`, not `[deepseek-v4-pro [1m]]`).
+
 | Key | Description | Default |
 |-----|-------------|---------|
 | `[default]` | Fallback pricing when no model section matches | — |
