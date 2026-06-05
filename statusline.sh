@@ -31,6 +31,8 @@ project_name=$(echo "$raw_json" | jq -r '
 [ -z "$project_name" ] && project_name="..."
 
 model_raw=$(echo "$raw_json" | jq -r '.model.display_name // "Unknown"')
+# Strip [1m] / [1M] context suffix added by third-party API providers
+model_clean=$(echo "$model_raw" | sed -E 's/\s*\[1[mi]\]$//')
 
 context_pct=$(echo "$raw_json" | jq -r '.context_window.used_percentage // 0')
 context_pct=$(awk -v p="$context_pct" 'BEGIN { printf "%d", p }')
@@ -75,7 +77,7 @@ effort_level=$(echo "$raw_json" | jq -r '.effort.level // ""')
 thinking_enabled=$(echo "$raw_json" | jq -r '.thinking.enabled // false')
 
 # ── 3. Model name beautify ───────────────────────────────────────────
-case "$model_raw" in
+case "$model_clean" in
     deepseek-v4-pro)   model_display="DeepSeek V4 Pro" ;;
     deepseek-v4-flash)  model_display="DeepSeek V4 Flash" ;;
     deepseek*pro)       model_display="DeepSeek Pro" ;;
@@ -87,7 +89,7 @@ case "$model_raw" in
     claude-sonnet-4-5)  model_display="Sonnet 4.5" ;;
     claude-sonnet*)     model_display="Sonnet" ;;
     claude-haiku*)      model_display="Haiku" ;;
-    *)                  model_display="$model_raw" ;;
+    *)                  model_display="$model_clean" ;;
 esac
 
 # ── 4. Read INI pricing ──────────────────────────────────────────────
@@ -102,10 +104,10 @@ cache_write_price=2.00
 cache_read_price=0.50
 currency="CNY"
 
-# Parse INI: extract section matching $model_raw, fallback to default
+# Parse INI: extract section matching $model_clean, fallback to default
 if [ -f "$ini_path" ]; then
     # Try specific model section first, then default
-    for section in "$model_raw" "default"; do
+    for section in "$model_clean" "default"; do
         section_data=$(awk -v sec="[$section]" '
             BEGIN { found=0 }
             $0 == sec   { found=1; next }

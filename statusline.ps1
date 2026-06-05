@@ -43,7 +43,9 @@ if ([string]::IsNullOrWhiteSpace($projectName)) { $projectName = '...' }
 
 # Model name - beautify common model IDs
 $modelRaw = if ($data.model.display_name) { $data.model.display_name } else { 'Unknown' }
-$modelDisplay = switch -Regex ($modelRaw) {
+# Strip [1m] / [1M] context suffix added by third-party API providers
+$modelClean = $modelRaw -replace '\s*\[1[mi]\]$', ''
+$modelDisplay = switch -Regex ($modelClean) {
     '^deepseek-v4-pro$'   { 'DeepSeek V4 Pro'; break }
     '^deepseek-v4-flash$' { 'DeepSeek V4 Flash'; break }
     'deepseek.*pro'       { 'DeepSeek Pro'; break }
@@ -55,7 +57,7 @@ $modelDisplay = switch -Regex ($modelRaw) {
     '^claude-sonnet-4-5$' { 'Sonnet 4.5'; break }
     'claude-sonnet'       { 'Sonnet'; break }
     'claude-haiku'        { 'Haiku'; break }
-    default               { $modelRaw }
+    default               { $modelClean }
 }
 
 # Context usage
@@ -116,7 +118,7 @@ if (Test-Path $iniPath) {
 }
 
 # Match pricing to current model, fallback to [default]
-$matchedSection = if ($iniSections.ContainsKey($modelRaw)) { $modelRaw } else { 'default' }
+$matchedSection = if ($iniSections.ContainsKey($modelClean)) { $modelClean } else { 'default' }
 if ($iniSections.ContainsKey($matchedSection)) {
     $section = $iniSections[$matchedSection]
     if ($section.ContainsKey('input_price'))       { $pricing['input_price']       = $section['input_price'] }
