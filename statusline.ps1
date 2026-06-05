@@ -136,72 +136,109 @@ $curCW  = if ($data.context_window.current_usage.cache_creation_input_tokens) { 
 $curCR  = if ($data.context_window.current_usage.cache_read_input_tokens)      { [int]$data.context_window.current_usage.cache_read_input_tokens }      else { 0 }
 $sessionId = if ($data.session_id) { $data.session_id } else { 'unknown' }
 
+# Project key for per-project tracking
+$projectKey = if ($data.workspace.project_dir) { $data.workspace.project_dir } else { $data.cwd }
+if (-not $projectKey) { $projectKey = 'unknown' }
+
 $cumIn = 0; $cumOut = 0; $cumCW = 0; $cumCR = 0
+$sesIn = 0; $sesOut = 0; $sesCW = 0; $sesCR = 0
 
 # Read existing state
 $state = $null
+$projects = @{}
 if (Test-Path $statePath) {
     try {
         $rawState = [System.IO.File]::ReadAllText($statePath, [System.Text.UTF8Encoding]::new($false))
         $state = $rawState | ConvertFrom-Json
+        if ($state.projects) {
+            $projects = @{}
+            $state.projects.PSObject.Properties | ForEach-Object { $projects[$_.Name] = $_.Value }
+        }
     } catch {}
 }
 
-# Check if session changed or new
-$isNewSession = (-not $state) -or ($state.session_id -ne $sessionId)
+# Look up current project
+$projState = $null
+if ($projects.ContainsKey($projectKey)) {
+    $projState = $projects[$projectKey]
+}
+$isNewProject = (-not $projState)
 
-if ($isNewSession) {
-    # New session — start fresh
+# Check if session changed or new (per-project)
+# Guard: if incoming session_id is "unknown" (compact), trust stored session_id
+$isNewSession = $isNewProject -or (($sessionId -ne 'unknown') -and ($projState.session_id -ne $sessionId))
+
+if ($isNewProject) {
+    # Brand new project — start from scratch
     $cumIn = $curIn; $cumOut = $curOut; $cumCW = $curCW; $cumCR = $curCR
+    $sesIn = $curIn; $sesOut = $curOut; $sesCW = $curCW; $sesCR = $curCR
+} elseif ($isNewSession) {
+    # Same project, new session: session reset, cumulative preserved
+    $cumIn  = [int]$projState.cumulative_input  + $curIn
+    $cumOut = [int]$projState.cumulative_output + $curOut
+    $cumCW  = [int]$projState.cumulative_cache_write + $curCW
+    $cumCR  = [int]$projState.cumulative_cache_read  + $curCR
+    $sesIn = $curIn; $sesOut = $curOut; $sesCW = $curCW; $sesCR = $curCR
 } else {
     # Same session — check for duplicate (debounce)
-    $lastIn  = if ($state.last_input)  { [int]$state.last_input }  else { 0 }
-    $lastOut = if ($state.last_output) { [int]$state.last_output } else { 0 }
-    $lastCW  = if ($state.last_cache_write) { [int]$state.last_cache_write } else { 0 }
-    $lastCR  = if ($state.last_cache_read)  { [int]$state.last_cache_read }  else { 0 }
+    $lastIn  = if ($projState.last_input)  { [int]$projState.last_input }  else { 0 }
+    $lastOut = if ($projState.last_output) { [int]$projState.last_output } else { 0 }
+    $lastCW  = if ($projState.last_cache_write) { [int]$projState.last_cache_write } else { 0 }
+    $lastCR  = if ($projState.last_cache_read)  { [int]$projState.last_cache_read }  else { 0 }
 
     $isDuplicate = ($curIn -eq $lastIn) -and ($curOut -eq $lastOut) -and
                    ($curCW -eq $lastCW) -and ($curCR -eq $lastCR)
 
-    $cumIn  = if ($state.cumulative_input)  { [int]$state.cumulative_input }  else { 0 }
-    $cumOut = if ($state.cumulative_output) { [int]$state.cumulative_output } else { 0 }
-    $cumCW  = if ($state.cumulative_cache_write) { [int]$state.cumulative_cache_write } else { 0 }
-    $cumCR  = if ($state.cumulative_cache_read)  { [int]$state.cumulative_cache_read }  else { 0 }
+    $cumIn  = if ($projState.cumulative_input)  { [int]$projState.cumulative_input }  else { 0 }
+    $cumOut = if ($projState.cumulative_output) { [int]$projState.cumulative_output } else { 0 }
+    $cumCW  = if ($projState.cumulative_cache_write) { [int]$projState.cumulative_cache_write } else { 0 }
+    $cumCR  = if ($projState.cumulative_cache_read)  { [int]$projState.cumulative_cache_read }  else { 0 }
+    $sesIn  = if ($projState.session_input)  { [int]$projState.session_input }  else { 0 }
+    $sesOut = if ($projState.session_output) { [int]$projState.session_output } else { 0 }
+    $sesCW  = if ($projState.session_cache_write) { [int]$projState.session_cache_write } else { 0 }
+    $sesCR  = if ($projState.session_cache_read)  { [int]$projState.session_cache_read }  else { 0 }
 
     if (-not $isDuplicate -and ($curIn + $curOut + $curCW + $curCR) -gt 0) {
-        $cumIn  += $curIn
-        $cumOut += $curOut
-        $cumCW  += $curCW
-        $cumCR  += $curCR
+        $cumIn  += $curIn;  $cumOut += $curOut;  $cumCW  += $curCW;  $cumCR  += $curCR
+        $sesIn  += $curIn;  $sesOut += $curOut;  $sesCW  += $curCW;  $sesCR  += $curCR
     }
 }
 
 # Save state
 try {
-    $stateJson = @{
-        session_id            = $sessionId
-        cumulative_input      = $cumIn
-        cumulative_output     = $cumOut
+    $projects[$projectKey] = @{
+        session_id             = $sessionId
+        session_input          = $sesIn
+        session_output         = $sesOut
+        session_cache_write    = $sesCW
+        session_cache_read     = $sesCR
+        cumulative_input       = $cumIn
+        cumulative_output      = $cumOut
         cumulative_cache_write = $cumCW
         cumulative_cache_read  = $cumCR
-        last_input            = $curIn
-        last_output           = $curOut
-        last_cache_write      = $curCW
-        last_cache_read       = $curCR
-    } | ConvertTo-Json -Compress
-    [System.IO.File]::WriteAllText($statePath, $stateJson, [System.Text.UTF8Encoding]::new($false))
+        last_input             = $curIn
+        last_output            = $curOut
+        last_cache_write       = $curCW
+        last_cache_read        = $curCR
+    }
+    $newState = @{ projects = $projects } | ConvertTo-Json -Depth 5
+    [System.IO.File]::WriteAllText($statePath, $newState, [System.Text.UTF8Encoding]::new($false))
 } catch {}
 
 # --- Calculate cost from custom pricing ---
-$costValue = 0.0
-$costValue += ($cumIn  / 1000000.0) * $pricing['input_price']
-$costValue += ($cumOut / 1000000.0) * $pricing['output_price']
-$costValue += ($cumCW  / 1000000.0) * $pricing['cache_write_price']
-$costValue += ($cumCR  / 1000000.0) * $pricing['cache_read_price']
+function Calc-Cost($i, $o, $cw, $cr) {
+    $v = ($i / 1000000.0) * $pricing['input_price'] +
+         ($o / 1000000.0) * $pricing['output_price'] +
+         ($cw / 1000000.0) * $pricing['cache_write_price'] +
+         ($cr / 1000000.0) * $pricing['cache_read_price']
+    return $v
+}
+$sessionCost    = Calc-Cost $sesIn $sesOut $sesCW $sesCR
+$cumulativeCost = Calc-Cost $cumIn $cumOut $cumCW $cumCR
 
-# Fallback to Claude Code's built-in cost if our calculation is 0 but CC reports cost
-if ($costValue -eq 0.0 -and $data.cost.total_cost_usd) {
-    $costValue = [double]$data.cost.total_cost_usd
+# Fallback to Claude Code's built-in cost if both are 0
+if ($cumulativeCost -eq 0.0 -and $data.cost.total_cost_usd) {
+    $cumulativeCost = [double]$data.cost.total_cost_usd
 }
 
 # Session duration
@@ -216,6 +253,9 @@ function Format-Duration($ms) {
 }
 $durationStr = Format-Duration $data.cost.total_duration_ms
 
+# Worktree?
+$isWorktree = ($data.worktree.name -or $data.workspace.git_worktree)
+
 # Git branch
 $gitBranch = ''
 $repoHost  = ''
@@ -229,9 +269,6 @@ try {
         if ($branch) { $gitBranch = $branch.Trim() }
     }
 } catch {}
-
-# Worktree?
-$isWorktree = ($data.worktree.name -or $data.workspace.git_worktree)
 
 # Effort level icon
 $effortIcon = ''
@@ -296,45 +333,61 @@ $tokenColor = if ($contextPct -gt 75) { $bred } else { $dim }
 # Per-call token display (for line 2)
 $callInStr  = Format-Num $curIn
 $callOutStr = Format-Num $curOut
-
-if ($costValue -ge 1.0)       { $costColor = $bred }
-elseif ($costValue -ge 0.5)   { $costColor = $byellow }
-else                          { $costColor = $bgreen }
-$costStr = "${currencySymbol}$($costValue.ToString('F3'))"
-
-# 7. Build output line (single line, cost at end)
-
-$line = ''
-$projectIcon = if ($isWorktree) { 'WT' } else { 'PR' }
-$line += "${bold}${bcyan}[${projectIcon}] ${projectName}${rst}"
-$line += " ${dim}|${rst} "
-$line += "${bmagenta}${modelDisplay}${rst}"
-if ($thinkingIcon) { $line += " ${bcyan}${thinkingIcon}${rst}" }
-if ($effortIcon)   { $line += " ${yellow}${effortIcon}${rst}" }
-$line += " ${dim}|${rst} "
-$line += "${bar} ${bold}${pctColor}${pctStr}%${rst}"
-$line += " ${dim}|${rst} "
-$line += "ctx: ${bwhite}${inputStr}/${outputStr}${rst}"
 $contextSizeStr = Format-Num $contextSize
-$line += " ${dim}/${bold}${pctColor}${contextSizeStr}${rst}"
-$line += " ${dim}|${rst} "
-$line += "call: ${bwhite}i${rst}${bwhite}${callInStr}${rst} ${bwhite}o${rst}${bwhite}${callOutStr}${rst}"
 
+if ($cumulativeCost -ge 1.0 -or $sessionCost -ge 1.0)       { $costColor = $bred }
+elseif ($cumulativeCost -ge 0.5 -or $sessionCost -ge 0.5)   { $costColor = $byellow }
+else                                                          { $costColor = $bgreen }
+$costStr = "${currencySymbol}$($sessionCost.ToString('F3'))/${currencySymbol}$($cumulativeCost.ToString('F3'))"
+
+# 7. Build field map and order
+
+$displayOrder = @('project', 'model', 'thinking', 'effort', 'bar', 'ctx', 'call', 'git', 'time', 'cost')
+
+# Override from INI [display] section
+if (Test-Path $iniPath) {
+    try {
+        $inDisplay = $false
+        foreach ($dline in (Get-Content $iniPath -Encoding UTF8 -ErrorAction Stop)) {
+            $dtrimmed = $dline.Trim()
+            if ($dtrimmed -match '^[#;]' -or $dtrimmed -eq '') { continue }
+            if ($dtrimmed -eq '[display]') { $inDisplay = $true; continue }
+            if ($dtrimmed -match '^\[.+\]$') { $inDisplay = $false; continue }
+            if ($inDisplay -and $dtrimmed -match '^\s*order\s*=\s*(.+?)\s*$') {
+                $raw = $Matches[1].Trim()
+                $displayOrder = $raw -split '\s*,\s*' | ForEach-Object { $_.Trim() } | Where-Object { $_ }
+                break
+            }
+        }
+    } catch {}
+}
+
+$projectIcon = if ($isWorktree) { 'WT' } else { 'PR' }
+$fields = [ordered]@{}
+$fields['project']  = "${bold}${bcyan}[${projectIcon}] ${projectName}${rst}"
+$fields['model']    = "${bmagenta}${modelDisplay}${rst}"
+$fields['thinking'] = if ($thinkingIcon) { "${bcyan}${thinkingIcon}${rst}" } else { '' }
+$fields['effort']   = if ($effortIcon)   { "${yellow}${effortIcon}${rst}" }      else { '' }
+$fields['bar']      = "${bar} ${bold}${pctColor}${pctStr}%${rst}"
+$fields['ctx']      = "ctx: ${bwhite}${inputStr}/${outputStr}${rst} ${dim}/${bold}${pctColor}${contextSizeStr}${rst}"
+$fields['call']     = "call: ${bwhite}i${rst}${bwhite}${callInStr}${rst} ${bwhite}o${rst}${bwhite}${callOutStr}${rst}"
+
+$gitField = ''
 if ($gitBranch) {
-    $line += " ${dim}|${rst} "
-    $line += "${cyan}git:${gitBranch}${rst}"
+    $gitField = "${cyan}git:${gitBranch}${rst}"
+    if ($repoHost) { $gitField += " ${dim}@${repoHost}${rst}" }
 }
-if ($repoHost) {
-    $line += " ${dim}@${repoHost}${rst}"
-}
+$fields['git'] = $gitField
 
-if ($durationStr) {
-    $line += " ${dim}|${rst} "
-    $line += "${bblue}time ${rst}${durationStr}"
-}
+$fields['time'] = if ($durationStr) { "${bblue}time ${rst}${durationStr}" } else { '' }
+$fields['cost'] = "${bold}${costColor}${costStr}${rst}"
 
-$line += " ${dim}|${rst} "
-$line += "${bold}${costColor}${costStr}${rst}"
+$lineParts = foreach ($key in $displayOrder) {
+    if ($fields.Contains($key) -and $fields[$key]) {
+        $fields[$key]
+    }
+}
+$line = $lineParts -join " ${dim}|${rst} "
 
 # 8. Output
 try {
