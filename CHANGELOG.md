@@ -3,7 +3,11 @@
 ## [Unreleased]
 
 ### Added
+- Per-project state files: each project gets its own `statusline_state_<project>.json` instead of sharing a single file — eliminates race condition when running multiple Claude Code sessions simultaneously (different projects could overwrite each other's state)
 - Strip `[1m]`/`[1M]` context suffix from model names before matching — third-party API providers append this suffix to indicate 1M context window, which previously broke INI pricing section matching and model beautification
+
+### Changed
+- State file format: `{"projects": {"/path": {...}}}` → single-project JSON at `statusline_state_<project>.json` (no `projects` wrapper)
 
 ## [2026-06-05]
 

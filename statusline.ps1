@@ -78,7 +78,6 @@ $outputTokens = if ($data.context_window.total_output_tokens) { [int]$data.conte
 
 $scriptDir = if ($env:USERPROFILE) { $env:USERPROFILE } else { "$env:HOMEDRIVE$env:HOMEPATH" }
 $iniPath   = Join-Path $scriptDir '.claude/statusline.ini'
-$statePath = Join-Path $scriptDir '.claude/statusline_state.json'
 
 # Default pricing (DeepSeek V4, CNY) — used if INI is missing or invalid
 $pricing = @{
@@ -141,28 +140,19 @@ $sessionId = if ($data.session_id) { $data.session_id } else { 'unknown' }
 # Project key for per-project tracking
 $projectKey = if ($data.workspace.project_dir) { $data.workspace.project_dir } else { $data.cwd }
 if (-not $projectKey) { $projectKey = 'unknown' }
+$stateFile = 'statusline_state_' + ($projectKey -replace '[:\\/]', '_') + '.json'
+$statePath = Join-Path $scriptDir $stateFile
 
 $cumIn = 0; $cumOut = 0; $cumCW = 0; $cumCR = 0
 $sesIn = 0; $sesOut = 0; $sesCW = 0; $sesCR = 0
 
-# Read existing state
-$state = $null
-$projects = @{}
+# Read existing state (per-project file, no projects wrapper)
+$projState = $null
 if (Test-Path $statePath) {
     try {
         $rawState = [System.IO.File]::ReadAllText($statePath, [System.Text.UTF8Encoding]::new($false))
-        $state = $rawState | ConvertFrom-Json
-        if ($state.projects) {
-            $projects = @{}
-            $state.projects.PSObject.Properties | ForEach-Object { $projects[$_.Name] = $_.Value }
-        }
+        $projState = $rawState | ConvertFrom-Json
     } catch {}
-}
-
-# Look up current project
-$projState = $null
-if ($projects.ContainsKey($projectKey)) {
-    $projState = $projects[$projectKey]
 }
 $isNewProject = (-not $projState)
 
@@ -206,9 +196,9 @@ if ($isNewProject) {
     }
 }
 
-# Save state
+# Save state (single project per file)
 try {
-    $projects[$projectKey] = @{
+    $newState = @{
         session_id             = $sessionId
         session_input          = $sesIn
         session_output         = $sesOut
@@ -222,8 +212,7 @@ try {
         last_output            = $curOut
         last_cache_write       = $curCW
         last_cache_read        = $curCR
-    }
-    $newState = @{ projects = $projects } | ConvertTo-Json -Depth 5
+    } | ConvertTo-Json -Depth 5
     [System.IO.File]::WriteAllText($statePath, $newState, [System.Text.UTF8Encoding]::new($false))
 } catch {}
 

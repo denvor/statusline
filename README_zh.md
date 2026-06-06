@@ -40,7 +40,7 @@
 - **自定义定价** — 从 `statusline.ini` 读取，输入/输出/缓存写入/缓存读取分别定价
 - **可配置显示** — 通过 `[display]` 段控制显示哪些字段及顺序（共 10 个可选字段）
 - **多币种** — 支持 `¥`（CNY）或 `$`（USD）
-- **按项目独立追踪** — 不同项目目录的费用分别统计，存储在 `statusline_state.json`
+- **按项目独立追踪** — 不同项目目录的费用分别统计，存储在各自独立的 `statusline_state_<项目>.json` 文件中
 - **会话/项目费用分离** — 显示 `会话费用/项目累计费用`；新会话清零左侧，项目费用持续累加
 - **防抖去重** — 检测并跳过 Claude Code 300ms 防抖导致的重复调用
 - **Git 信息** — 分支名 + 远程仓库（如 `@github`）
@@ -198,7 +198,7 @@ Claude Code 在每次助手消息后通过 stdin 向脚本传入 JSON 快照。�
 
 1. 解析 JSON（`ConvertFrom-Json`）
 2. 从 `context_window.current_usage` 提取单次调用的 Token 数
-3. 读写 `statusline_state.json` 中的累计数据（按项目目录分组，区分会话费用和累计费用）
+3. 读写 `statusline_state_<项目>.json` 中的累计数据（每个项目一个独立文件，区分会话费用和累计费用）
 4. 从 `statusline.ini` 加载定价（缺失则用默认值）
 5. 计算费用：`Σ(Token / 1,000,000 × 单价)`，覆盖四种 Token 类型
 6. 当 `current_usage` 与上次相同时跳过累加（防止防抖重复计入）
@@ -213,7 +213,7 @@ Claude Code 在每次助手消息后通过 stdin 向脚本传入 JSON 快照。�
 | `statusline.ps1` | Windows 脚本 — 读取 stdin，累计 Token，输出状态栏 |
 | `statusline.sh` | Mac / Linux 脚本 — 功能相同，使用 jq 解析 JSON |
 | `statusline.ini` | 用户可编辑的定价配置 |
-| `statusline_state.json` | 自动生成 — 持久化每个项目的 Token 累计数据（会话 + 累计） |
+| `statusline_state_<项目>.json` | 自动生成 — 每个项目一个独立文件，持久化 Token 累计数据（会话 + 累计） |
 
 ## 常见问题
 
@@ -239,7 +239,7 @@ Claude Code 在每次助手消息后通过 stdin 向脚本传入 JSON 快照。�
 - **会话费用**（`/` 左侧）：每次启动 Claude Code 新会话时清零，只统计本次对话。
 - **项目累计费用**（`/` 右侧）：该项目的累计费用，跨会话持续累加。
 
-Token 按**项目目录**独立追踪 — 不同项目有各自的计数器，存储在 `statusline_state.json` 的不同 key 下。
+Token 按**项目目录**独立追踪 — 不同项目有各自的计数器，存储在各自的 `statusline_state_<项目>.json` 文件中。
 
 ### Resume 恢复会话时会怎么计算？
 
@@ -252,7 +252,7 @@ Resume 恢复的是**同一个** `session_id`，脚本会继续累加，不会�
 
 关闭 Claude Code 后开启**全新会话**时，会话费用重置为零，项目累计费用继续增长。
 
-> 如果手动删除或损坏了 `statusline_state.json`，之前的累计记录会丢失，从零开始重新计算。
+> 如果手动删除或损坏了 `statusline_state_<项目>.json`，对应项目的累计记录会丢失，从零开始重新计算。
 
 ## License
 

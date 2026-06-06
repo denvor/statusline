@@ -40,7 +40,7 @@ Each segment is color-coded for quick scanning:
 - **Custom pricing** — read from `statusline.ini`, independent prices for input / output / cache writes / cache reads
 - **Configurable display** — show/hide and reorder fields via `[display]` section in `statusline.ini` (10 fields available)
 - **Multi-currency** — `¥` (CNY) or `$` (USD)
-- **Per-project cost tracking** — costs tracked independently per project directory, stored in `statusline_state.json`
+- **Per-project cost tracking** — costs tracked independently per project directory, stored in separate `statusline_state_<project>.json` files
 - **Session + project cost split** — displays `session_cost/project_cost`; session resets on new Claude Code session, project cost persists
 - **Debounce-safe** — detects and skips duplicate updates from Claude Code's 300ms debounce
 - **Git info** — branch name + remote host (e.g., `@github`)
@@ -198,7 +198,7 @@ Claude Code pipes a JSON snapshot to the script via stdin after each assistant m
 
 1. Parses the JSON (`ConvertFrom-Json`)
 2. Extracts per-call token counts from `context_window.current_usage`
-3. Reads/writes cumulative totals in `statusline_state.json` (keyed by project directory, with per-session and cumulative tracking)
+3. Reads/writes cumulative totals in `statusline_state_<project>.json` (one file per project, with per-session and cumulative tracking)
 4. Loads pricing from `statusline.ini` (falls back to defaults if missing)
 5. Computes cost: `sum(tokens / 1,000,000 × price_per_million)` across all four token types
 6. Skips accumulation when `current_usage` is unchanged (debounce guard)
@@ -213,7 +213,7 @@ The state file tracks each project independently. New Claude Code sessions reset
 | `statusline.ps1` | Windows script — reads stdin, accumulates tokens, outputs status line |
 | `statusline.sh` | Mac / Linux script — same functionality, uses jq for JSON parsing |
 | `statusline.ini` | User-editable pricing configuration |
-| `statusline_state.json` | Auto-generated — persists per-project token counts (session + cumulative) |
+| `statusline_state_<project>.json` | Auto-generated — one per project, persists token counts (session + cumulative) |
 
 ## FAQ
 
@@ -239,7 +239,7 @@ Unit prices are read from `statusline.ini`, matched by the current model's `[sec
 - **Session cost** (left of `/`): Resets to zero each time Claude Code starts a new session. Tracks only the current conversation.
 - **Project cost** (right of `/`): Cumulative total for the project directory, persisting across sessions.
 
-Token counts are tracked **per project directory** — different projects have independent counters, stored under separate keys in `statusline_state.json`.
+Token counts are tracked **per project directory** — different projects have independent counters, stored in separate `statusline_state_<project>.json` files.
 
 ### What happens when I resume a session?
 
@@ -252,7 +252,7 @@ Resuming restores the **same** `session_id`, so the script continues accumulatin
 
 Closing Claude Code and starting a **new** session resets the session cost to zero, but the project cumulative cost keeps growing.
 
-> If `statusline_state.json` is manually deleted or corrupted, all accumulated history is lost and counting restarts from zero.
+> If `statusline_state_<project>.json` is manually deleted or corrupted, accumulated history for that project is lost and counting restarts from zero.
 
 ## License
 
