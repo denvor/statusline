@@ -56,20 +56,21 @@ Each segment is color-coded for quick scanning:
 
 ## Quick Start
 
-### 1. Place the files
+### 1. Run the install script
 
-| Platform | Files to copy |
-|----------|--------------|
-| Windows | `statusline.ps1` + `statusline.ini` |
-| Mac / Linux | `statusline.sh` + `statusline.ini` |
+From the repo root:
 
-Copy them to `~/.claude/` or your project root.
-
-On Mac / Linux, also make the script executable:
-
-```bash
-chmod +x ~/.claude/statusline.sh
+**Windows:**
+```powershell
+powershell -File install.ps1
 ```
+
+**Mac / Linux:**
+```bash
+bash install.sh
+```
+
+This copies the required files to `~/.claude/` and migrates any old shared state file to the new per-project format.
 
 ### 2. Configure Claude Code
 
@@ -214,6 +215,7 @@ The state file tracks each project independently. New Claude Code sessions reset
 | `statusline.sh` | Mac / Linux script — same functionality, uses jq for JSON parsing |
 | `statusline.ini` | User-editable pricing configuration |
 | `statusline_state_<project>.json` | Auto-generated — one per project, persists token counts (session + cumulative) |
+| `install.ps1` / `install.sh` | Install scripts — copies files to `~/.claude/` and migrates old state files |
 
 ## FAQ
 

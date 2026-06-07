@@ -56,20 +56,21 @@
 
 ## 快速开始
 
-### 1. 放置文件
+### 1. 运行安装脚本
 
-| 平台 | 需要复制的文件 |
-|------|--------------|
-| Windows | `statusline.ps1` + `statusline.ini` |
-| Mac / Linux | `statusline.sh` + `statusline.ini` |
+在仓库根目录执行：
 
-复制到 `~/.claude/` 或项目根目录。
-
-Mac / Linux 上还需赋予执行权限：
-
-```bash
-chmod +x ~/.claude/statusline.sh
+**Windows：**
+```powershell
+powershell -File install.ps1
 ```
+
+**Mac / Linux：**
+```bash
+bash install.sh
+```
+
+脚本会自动将所需文件复制到 `~/.claude/`，并将旧的共享状态文件迁移为新的按项目独立存储格式。
 
 ### 2. 配置 Claude Code
 
@@ -214,6 +215,7 @@ Claude Code 在每次助手消息后通过 stdin 向脚本传入 JSON 快照。�
 | `statusline.sh` | Mac / Linux 脚本 — 功能相同，使用 jq 解析 JSON |
 | `statusline.ini` | 用户可编辑的定价配置 |
 | `statusline_state_<项目>.json` | 自动生成 — 每个项目一个独立文件，持久化 Token 累计数据（会话 + 累计） |
+| `install.ps1` / `install.sh` | 安装脚本 — 复制文件到 `~/.claude/` 并迁移旧状态文件 |
 
 ## 常见问题
 
