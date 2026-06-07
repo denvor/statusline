@@ -243,6 +243,20 @@ Claude Code 在每次助手消息后通过 stdin 向脚本传入 JSON 快照。�
 
 Token 按**项目目录**独立追踪 — 不同项目有各自的计数器，存储在各自的 `statusline_state_<项目>.json` 文件中。
 
+### 为什么 `claude -c` / `claude --continue` 不会重置会话费用？
+
+`claude --continue`（别名 `-c`）会保留上次对话的 `session_id`。脚本检测到「相同的 session_id」后判定为同一次会话，继续累加而不是重置。
+
+相反，`/resume`（应用内斜杠命令）会分配一个**新的** `session_id`，从而触发会话费用重置。
+
+**如果你希望在加载上次对话的同时获得全新的会话费用统计**，使用：
+
+```bash
+claude --continue --fork-session
+```
+
+这会创建一个新的 `session_id` 但加载上次对话，脚本会将会话费用清零，同时保留项目累计费用。
+
 ### Resume 恢复会话时会怎么计算？
 
 Resume 恢复的是**同一个** `session_id`，脚本会继续累加，不会清零：

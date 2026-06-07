@@ -243,6 +243,20 @@ Unit prices are read from `statusline.ini`, matched by the current model's `[sec
 
 Token counts are tracked **per project directory** — different projects have independent counters, stored in separate `statusline_state_<project>.json` files.
 
+### Why doesn't `claude -c` / `claude --continue` reset the session cost?
+
+`claude --continue` (alias `-c`) preserves the same `session_id` as the previous conversation. The script detects "same session_id" and continues accumulating session tokens — it does **not** reset.
+
+By contrast, `/resume` (the in-app slash command) assigns a **new** `session_id`, which triggers a session reset in the script.
+
+**If you want a fresh session cost while still loading the previous conversation**, use:
+
+```bash
+claude --continue --fork-session
+```
+
+This creates a new `session_id` while loading the last conversation, so the script resets session cost to zero while keeping the project cumulative cost.
+
 ### What happens when I resume a session?
 
 Resuming restores the **same** `session_id`, so the script continues accumulating within the same session:
