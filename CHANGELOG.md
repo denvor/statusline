@@ -5,9 +5,13 @@
 ### Added
 - Per-project state files: each project gets its own `statusline_state_<project>.json` instead of sharing a single file — eliminates race condition when running multiple Claude Code sessions simultaneously (different projects could overwrite each other's state)
 - Strip `[1m]`/`[1M]` context suffix from model names before matching — third-party API providers append this suffix to indicate 1M context window, which previously broke INI pricing section matching and model beautification
+- Install scripts (`install.ps1` / `install.sh`) with built-in old state migration — one-command setup that copies files to `~/.claude/` and migrates legacy `statusline_state.json`
 
 ### Changed
 - State file format: `{"projects": {"/path": {...}}}` → single-project JSON at `statusline_state_<project>.json` (no `projects` wrapper)
+
+### Removed
+- Standalone migration scripts (`migrate_state.ps1` / `migrate_state.sh`) — merged into install scripts
 
 ## [2026-06-05]
 
