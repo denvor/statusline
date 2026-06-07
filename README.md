@@ -257,16 +257,16 @@ claude --continue --fork-session
 
 This creates a new `session_id` while loading the last conversation, so the script resets session cost to zero while keeping the project cumulative cost.
 
-### What happens when I resume a session?
+### What happens when I start a new session?
 
-Resuming restores the **same** `session_id`, so the script continues accumulating within the same session:
+When Claude Code starts a session with a **new** `session_id` (different from what's stored in the state file), the script:
 
-1. Claude Code passes the same `session_id` on resume
-2. Script matches it against the stored project state → same session
-3. Session tokens continue accumulating (not reset)
-4. Project cumulative tokens also continue accumulating
+1. Detects `session_id` mismatch → new session
+2. **Resets session counters** to zero (starts accumulating fresh)
+3. **Preserves cumulative counters** (project total keeps growing)
+4. Displays `new_session_cost / project_cumulative_cost`
 
-Closing Claude Code and starting a **new** session resets the session cost to zero, but the project cumulative cost keeps growing.
+This is the normal behavior for `claude` (fresh start), `claude --continue --fork-session`, and `/resume` — all of which assign a new `session_id`.
 
 > If `statusline_state_<project>.json` is manually deleted or corrupted, accumulated history for that project is lost and counting restarts from zero.
 

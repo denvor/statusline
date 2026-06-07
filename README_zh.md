@@ -257,16 +257,16 @@ claude --continue --fork-session
 
 这会创建一个新的 `session_id` 但加载上次对话，脚本会将会话费用清零，同时保留项目累计费用。
 
-### Resume 恢复会话时会怎么计算？
+### 开启新会话时如何计算？
 
-Resume 恢复的是**同一个** `session_id`，脚本会继续累加，不会清零：
+当 Claude Code 以一个**新的** `session_id`（与状态文件中存储的不同）启动会话时，脚本会：
 
-1. Claude Code 恢复会话时传入相同的 `session_id`
-2. 脚本比对存储的 `session_id` → 匹配，判定为同一会话
-3. 会话 Token 继续累加（不重置）
-4. 项目累计 Token 同样继续累加
+1. 检测到 `session_id` 不匹配 → 判定为新会话
+2. **重置会话计数器**为零（重新开始累加）
+3. **保留累计计数器**（项目总计继续增长）
+4. 显示 `新会话费用 / 项目累计费用`
 
-关闭 Claude Code 后开启**全新会话**时，会话费用重置为零，项目累计费用继续增长。
+这是 `claude`（全新启动）、`claude --continue --fork-session` 和 `/resume` 的正常行为 — 这三种方式都会分配新的 `session_id`。
 
 > 如果手动删除或损坏了 `statusline_state_<项目>.json`，对应项目的累计记录会丢失，从零开始重新计算。
 
