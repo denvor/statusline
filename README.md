@@ -46,7 +46,7 @@ Each segment is color-coded for quick scanning:
 - **Git info** — branch name + remote host (e.g., `@github`)
 - **Worktree aware** — shows `[WT]` prefix inside git worktrees
 - **Session duration** — displays elapsed time (e.g., `time 5m`), from `cost.total_duration_ms`
-- **Zero dependencies** — pure PowerShell, no `jq` or Node.js required
+- **Zero dependencies (Windows)** — pure PowerShell, no `jq` or Node.js required. Mac/Linux requires bash 3.2+ and `jq`.
 
 ## Requirements
 

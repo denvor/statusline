@@ -46,7 +46,7 @@
 - **Git 信息** — 分支名 + 远程仓库（如 `@github`）
 - **Worktree 感知** — git worktree 中显示 `[WT]` 前缀
 - **会话时长** — 显示本次会话已用时间（如 `time 5m`），数据来自 `cost.total_duration_ms`
-- **零依赖** — 纯 PowerShell，不需要 `jq` 或 Node.js
+- **零依赖（Windows）** — 纯 PowerShell，不需要 `jq` 或 Node.js。Mac/Linux 需要 bash 3.2+ 和 `jq`
 
 ## 环境要求
 
