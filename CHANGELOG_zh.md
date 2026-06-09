@@ -1,19 +1,25 @@
 # 更新日志
 
-## [Unreleased]
+## [2026-06-07]
 
 ### Added
-- 按项目独立状态文件：每个项目使用独立的 `statusline_state_<项目>.json`，消除同时运行多个 Claude Code 会话时的竞态条件（不同项目会互相覆盖状态）
-- 模型名称匹配前自动去除 `[1m]`/`[1M]` 上下文后缀 — 第三方 API 提供商会在模型名后追加此后缀表示 1M 上下文窗口，之前会导致 INI 定价段匹配和模型美化失败
 - 安装脚本（`install.ps1` / `install.sh`）内建旧状态迁移 — 一键复制文件到 `~/.claude/` 并自动迁移旧版 `statusline_state.json`
-
-### Changed
-- 状态文件格式：从 `{"projects": {"/path": {...}}}` 改为单项目 JSON `statusline_state_<项目>.json`（移除 `projects` 包装）
 
 ### Removed
 - 独立迁移脚本（`migrate_state.ps1` / `migrate_state.sh`）— 已合并到安装脚本中
 
+## [2026-06-06]
+
+### Added
+- 按项目独立状态文件：每个项目使用独立的 `statusline_state_<项目>.json`，消除同时运行多个 Claude Code 会话时的竞态条件（不同项目会互相覆盖状态）
+
+### Changed
+- 状态文件格式：从 `{"projects": {"/path": {...}}}` 改为单项目 JSON `statusline_state_<项目>.json`（移除 `projects` 包装）
+
 ## [2026-06-05]
+
+### Added
+- 模型名称匹配前自动去除 `[1m]`/`[1M]` 上下文后缀 — 第三方 API 提供商会在模型名后追加此后缀表示 1M 上下文窗口，之前会导致 INI 定价段匹配和模型美化失败
 
 ### Added
 - **按项目独立追踪费用**：不同项目目录的费用分别统计，存储在 `statusline_state.json`
