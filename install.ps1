@@ -1,13 +1,13 @@
 # Install Claude Code statusline for Windows (PowerShell)
 # Run from the repo root: powershell -File install.ps1
-# Copies statusline.ps1 + statusline.ini to ~/.claude/
-# Migrates old statusline_state.json to per-project files if needed
+# Copies statusline.ps1 + statusline.ini to ~/.claude/statusline/
+# Migrates existing statusline_state_*.json files from ~/.claude/ to subdirectory
 param(
     [string]$TargetDir = ''
 )
 
 if (-not $TargetDir) {
-    $TargetDir = if ($env:USERPROFILE) { Join-Path $env:USERPROFILE '.claude' } else { "$env:HOMEDRIVE$env:HOMEPATH\.claude" }
+    $TargetDir = if ($env:USERPROFILE) { Join-Path $env:USERPROFILE '.claude\statusline' } else { "$env:HOMEDRIVE$env:HOMEPATH\.claude\statusline" }
 }
 
 $scriptRoot = Split-Path -Parent $MyInvocation.MyCommand.Definition
@@ -43,44 +43,27 @@ Write-Host '    "padding": 0'
 Write-Host '  }'
 
 # -------------------------------------------
-# Step 2: Migrate old state file
+# Step 2: Migrate state files to subdirectory
 # -------------------------------------------
-$oldPath = Join-Path $TargetDir 'statusline_state.json'
+$oldDir = Split-Path $TargetDir -Parent  # ~/.claude/
+$stateFiles = Get-ChildItem -Path $oldDir -Filter 'statusline_state_*.json' -File
 
-if (-not (Test-Path $oldPath)) {
-    Write-Host "`nNo old state file to migrate."
-    exit 0
-}
-
-Write-Host "`n--- Migrating old state file ---"
-Write-Host "Reading: $oldPath"
-
-$old = Get-Content $oldPath -Raw -Encoding UTF8 | ConvertFrom-Json
-
-if (-not $old.projects) {
-    Write-Host "No 'projects' key found — nothing to migrate."
-    Write-Host "`nInstall complete!"
-    exit 0
-}
-
-$count = 0
-foreach ($prop in $old.projects.PSObject.Properties) {
-    $projectKey = $prop.Name
-    $data = $prop.Value
-
-    $safeName = 'statusline_state_' + ($projectKey -replace '[:\\/]', '_') + '.json'
-    $newPath = Join-Path $TargetDir $safeName
-
-    if (Test-Path $newPath) {
-        Write-Host "SKIP (already exists): $safeName"
-        continue
+if (-not $stateFiles) {
+    Write-Host "`nNo state files to migrate."
+} else {
+    Write-Host "`n--- Migrating state files to $TargetDir ---"
+    $count = 0
+    foreach ($f in $stateFiles) {
+        $dest = Join-Path $TargetDir $f.Name
+        if (Test-Path $dest) {
+            Write-Host "  SKIP (already exists): $($f.Name)"
+        } else {
+            Copy-Item -Path $f.FullName -Destination $dest -Force
+            Write-Host "  OK: $($f.Name)"
+            $count++
+        }
     }
-
-    $data | ConvertTo-Json -Depth 5 | Out-File -FilePath $newPath -Encoding UTF8 -NoNewline
-    Write-Host "OK: $safeName"
-    $count++
+    Write-Host "Migrated $count state file(s)."
 }
 
-Write-Host "`nMigrated $count project(s)."
-Write-Host "Old file kept at: $oldPath (delete manually if no longer needed)"
 Write-Host "`nInstall complete!"

@@ -94,7 +94,8 @@ esac
 
 # ── 4. Read INI pricing ──────────────────────────────────────────────
 script_dir="${HOME}"
-ini_path="${HOME}/.claude/statusline.ini"
+statusline_dir="${HOME}/.claude/statusline"
+ini_path="${statusline_dir}/statusline.ini"
 
 # Default pricing
 input_price=2.00
@@ -143,7 +144,7 @@ fi
 # Project key for per-project tracking
 project_key=$(echo "$raw_json" | jq -r '.workspace.project_dir // .cwd // "unknown"')
 safe_name=$(echo "$project_key" | sed 's/[:\/\\]/_/g')
-state_path="${HOME}/.claude/statusline_state_${safe_name}.json"
+state_path="${statusline_dir}/statusline_state_${safe_name}.json"
 
 cum_in=0; cum_out=0; cum_cw=0; cum_cr=0
 ses_in=0; ses_out=0; ses_cw=0; ses_cr=0
@@ -228,6 +229,8 @@ new_state=$(jq -n \
         cumulative_input: $ci, cumulative_output: $co, cumulative_cache_write: $ccw, cumulative_cache_read: $ccr,
         last_input: $li, last_output: $lo, last_cache_write: $lcw, last_cache_read: $lcr
     }')
+# Ensure statusline directory exists
+mkdir -p "$statusline_dir" 2>/dev/null || true
 echo "$new_state" > "$state_path"
 
 # ── 6. Calculate cost ────────────────────────────────────────────────

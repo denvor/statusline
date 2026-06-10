@@ -1,0 +1,7 @@
+statusline_state.json
+.vscode/
+.idea/
+.DS_Store
+.codegraph/
+CLAUDE.md
+CLAUDE_en.md

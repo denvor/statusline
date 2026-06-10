@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # Install Claude Code statusline for Mac / Linux
 # Run from the repo root: bash install.sh
-# Copies statusline.sh + statusline.ini to ~/.claude/
-# Migrates old statusline_state.json to per-project files if needed
+# Copies statusline.sh + statusline.ini to ~/.claude/statusline/
+# Migrates existing statusline_state_*.json files from ~/.claude/ to subdirectory
 set -euo pipefail
 
-TARGET_DIR="${1:-$HOME/.claude}"
+TARGET_DIR="${1:-$HOME/.claude/statusline}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # -------------------------------------------
@@ -37,64 +37,40 @@ echo
 echo "Make sure your settings.json has the statusLine config:"
 echo '  "statusLine": {'
 echo '    "type": "command",'
-echo '    "command": "$HOME/.claude/statusline.sh",'
+echo '    "command": "$HOME/.claude/statusline/statusline.sh",'
 echo '    "padding": 0'
 echo '  }'
 
 # -------------------------------------------
-# Step 2: Migrate old state file
+# Step 2: Migrate state files to subdirectory
 # -------------------------------------------
-OLD_PATH="${TARGET_DIR}/statusline_state.json"
-
-if [[ ! -f "$OLD_PATH" ]]; then
-    echo
-    echo "No old state file to migrate."
-    echo
-    echo "Install complete!"
-    exit 0
-fi
-
-echo
-echo "--- Migrating old state file ---"
-echo "Reading: $OLD_PATH"
-
-# Check if jq is available
-if ! command -v jq &>/dev/null; then
-    echo "WARN: jq is required for migration but not installed."
-    echo "Install it: brew install jq  /  apt install jq"
-    echo "Skipping migration — you can run it later after installing jq."
-    echo
-    echo "Install complete!"
-    exit 0
-fi
-
-# Check if 'projects' key exists
-if [[ "$(jq -r '.projects | type' "$OLD_PATH" 2>/dev/null)" != "object" ]]; then
-    echo "No 'projects' key found — nothing to migrate."
-    echo
-    echo "Install complete!"
-    exit 0
-fi
-
+OLD_DIR="$HOME/.claude"
 count=0
-keys=$(jq -r '.projects | keys[]' "$OLD_PATH")
+found=0
 
-while IFS= read -r project_key; do
-    safe_name="statusline_state_$(echo "$project_key" | sed 's/[:\/\\]/_/g').json"
-    new_path="${TARGET_DIR}/${safe_name}"
+for f in "$OLD_DIR"/statusline_state_*.json; do
+    # Skip if glob didn't match
+    [ -f "$f" ] || continue
+    found=1
+    basename_f=$(basename "$f")
+    dest="${TARGET_DIR}/${basename_f}"
 
-    if [[ -f "$new_path" ]]; then
-        echo "SKIP (already exists): $safe_name"
-        continue
+    if [[ -f "$dest" ]]; then
+        echo "  SKIP (already exists): $basename_f"
+    else
+        cp "$f" "$dest"
+        echo "  OK: $basename_f"
+        count=$((count + 1))
     fi
+done
 
-    jq --arg key "$project_key" '.projects[$key]' "$OLD_PATH" > "$new_path"
-    echo "OK: $safe_name"
-    count=$((count + 1))
-done <<< "$keys"
+if [[ "$found" -eq 0 ]]; then
+    echo
+    echo "No state files to migrate."
+else
+    echo
+    echo "Migrated $count state file(s)."
+fi
 
-echo
-echo "Migrated $count project(s)."
-echo "Old file kept at: $OLD_PATH (delete manually if no longer needed)"
 echo
 echo "Install complete!"

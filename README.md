@@ -70,7 +70,7 @@ powershell -File install.ps1
 bash install.sh
 ```
 
-This copies the required files to `~/.claude/` and migrates any old shared state file to the new per-project format.
+This copies the required files to `~/.claude/statusline/` and migrates any existing `statusline_state_*.json` files from `~/.claude/` to the new subdirectory.
 
 ### 2. Configure Claude Code
 
@@ -80,7 +80,7 @@ Add the following `"statusLine"` key to your **existing** `~/.claude/settings.js
 ```jsonc
 "statusLine": {
   "type": "command",
-  "command": "powershell.exe -NoProfile -File \"C:/Users/your-username/.claude/statusline.ps1\"",
+  "command": "powershell.exe -NoProfile -File \"C:/Users/your-username/.claude/statusline/statusline.ps1\"",
   "padding": 0
 }
 ```
@@ -89,7 +89,7 @@ Add the following `"statusLine"` key to your **existing** `~/.claude/settings.js
 ```jsonc
 "statusLine": {
   "type": "command",
-  "command": "$HOME/.claude/statusline.sh",
+  "command": "$HOME/.claude/statusline/statusline.sh",
   "padding": 0
 }
 ```
@@ -215,7 +215,7 @@ The state file tracks each project independently. New Claude Code sessions reset
 | `statusline.sh` | Mac / Linux script — same functionality, uses jq for JSON parsing |
 | `statusline.ini` | User-editable pricing configuration |
 | `statusline_state_<project>.json` | Auto-generated — one per project, persists token counts (session + cumulative) |
-| `install.ps1` / `install.sh` | Install scripts — copies files to `~/.claude/` and migrates old state files |
+| `install.ps1` / `install.sh` | Install scripts — copies files to `~/.claude/statusline/` and migrates old state files |
 
 ## FAQ
 

@@ -70,7 +70,7 @@ powershell -File install.ps1
 bash install.sh
 ```
 
-脚本会自动将所需文件复制到 `~/.claude/`，并将旧的共享状态文件迁移为新的按项目独立存储格式。
+脚本会自动将所需文件复制到 `~/.claude/statusline/`，并将 `~/.claude/` 下已有的 `statusline_state_*.json` 状态文件迁移到新子目录。
 
 ### 2. 配置 Claude Code
 
@@ -80,7 +80,7 @@ bash install.sh
 ```jsonc
 "statusLine": {
   "type": "command",
-  "command": "powershell.exe -NoProfile -File \"C:/Users/你的用户名/.claude/statusline.ps1\"",
+  "command": "powershell.exe -NoProfile -File \"C:/Users/你的用户名/.claude/statusline/statusline.ps1\"",
   "padding": 0
 }
 ```
@@ -89,7 +89,7 @@ bash install.sh
 ```jsonc
 "statusLine": {
   "type": "command",
-  "command": "$HOME/.claude/statusline.sh",
+  "command": "$HOME/.claude/statusline/statusline.sh",
   "padding": 0
 }
 ```
@@ -215,7 +215,7 @@ Claude Code 在每次助手消息后通过 stdin 向脚本传入 JSON 快照。�
 | `statusline.sh` | Mac / Linux 脚本 — 功能相同，使用 jq 解析 JSON |
 | `statusline.ini` | 用户可编辑的定价配置 |
 | `statusline_state_<项目>.json` | 自动生成 — 每个项目一个独立文件，持久化 Token 累计数据（会话 + 累计） |
-| `install.ps1` / `install.sh` | 安装脚本 — 复制文件到 `~/.claude/` 并迁移旧状态文件 |
+| `install.ps1` / `install.sh` | 安装脚本 — 复制文件到 `~/.claude/statusline/` 并迁移旧状态文件 |
 
 ## 常见问题
 

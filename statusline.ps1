@@ -77,7 +77,8 @@ $outputTokens = if ($data.context_window.total_output_tokens) { [int]$data.conte
 # =====================================================================
 
 $scriptDir = if ($env:USERPROFILE) { $env:USERPROFILE } else { "$env:HOMEDRIVE$env:HOMEPATH" }
-$iniPath   = Join-Path $scriptDir '.claude/statusline.ini'
+$statuslineDir = Join-Path $scriptDir '.claude/statusline'
+$iniPath   = Join-Path $statuslineDir 'statusline.ini'
 
 # Default pricing (DeepSeek V4, CNY) — used if INI is missing or invalid
 $pricing = @{
@@ -141,7 +142,7 @@ $sessionId = if ($data.session_id) { $data.session_id } else { 'unknown' }
 $projectKey = if ($data.workspace.project_dir) { $data.workspace.project_dir } else { $data.cwd }
 if (-not $projectKey) { $projectKey = 'unknown' }
 $stateFile = 'statusline_state_' + ($projectKey -replace '[:\\/]', '_') + '.json'
-$statePath = Join-Path $scriptDir $stateFile
+$statePath = Join-Path $statuslineDir $stateFile
 
 $cumIn = 0; $cumOut = 0; $cumCW = 0; $cumCR = 0
 $sesIn = 0; $sesOut = 0; $sesCW = 0; $sesCR = 0
@@ -198,6 +199,8 @@ if ($isNewProject) {
 
 # Save state (single project per file)
 try {
+    # Ensure statusline directory exists
+    New-Item -ItemType Directory -Path $statuslineDir -Force | Out-Null
     $newState = @{
         session_id             = $sessionId
         session_input          = $sesIn
