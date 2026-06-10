@@ -33,13 +33,32 @@ done
 chmod +x "${TARGET_DIR}/statusline.sh" 2>/dev/null || true
 echo "  +x: statusline.sh"
 
+# -------------------------------------------
+# Step 3: Configure settings.json
+# -------------------------------------------
+SETTINGS_PATH="${HOME}/.claude/settings.json"
+
 echo
-echo "Make sure your settings.json has the statusLine config:"
-echo '  "statusLine": {'
-echo '    "type": "command",'
-echo '    "command": "$HOME/.claude/statusline/statusline.sh",'
-echo '    "padding": 0'
-echo '  }'
+echo "--- Configuring settings.json ---"
+
+if [[ -f "$SETTINGS_PATH" ]]; then
+    # Remove old statusLine (if any) and add the new one in one jq pass
+    # Use --arg to keep $HOME literal (Claude Code expands it at runtime)
+    new_settings=$(jq --arg cmd '$HOME/.claude/statusline/statusline.sh' \
+        'del(.statusLine) | .statusLine = {"type":"command","command":$cmd,"padding":0}' \
+        "$SETTINGS_PATH" 2>/dev/null) || true
+    if [[ -n "$new_settings" ]]; then
+        echo "$new_settings" > "$SETTINGS_PATH"
+        echo "  Updated statusLine entry in: $SETTINGS_PATH"
+    else
+        echo "  WARN: Failed to update settings.json"
+    fi
+else
+    # Create new settings.json with just statusLine
+    jq -n --arg cmd '$HOME/.claude/statusline/statusline.sh' \
+        '{"statusLine":{"type":"command","command":$cmd,"padding":0}}' > "$SETTINGS_PATH"
+    echo "  Created: $SETTINGS_PATH"
+fi
 
 # -------------------------------------------
 # Step 2: Migrate state files to subdirectory

@@ -72,33 +72,13 @@ bash install.sh
 
 脚本会自动将所需文件复制到 `~/.claude/statusline/`，并将 `~/.claude/` 下已有的 `statusline_state_*.json` 状态文件迁移到新子目录。
 
-### 2. 配置 Claude Code
+### 2. 在 Claude Code 中发送任意消息
 
-在 **已有的** `~/.claude/settings.json`（全局）或 `.claude/settings.json`（当前项目）中**添加** `"statusLine"` 键。注意是合并到现有配置中，**不要替换整个文件**：
+安装脚本会自动将 `statusLine` 配置写入 `~/.claude/settings.json`。状态栏会在首次交互后显示在终端底部。
 
-**Windows：**
-```jsonc
-"statusLine": {
-  "type": "command",
-  "command": "powershell.exe -NoProfile -File \"C:/Users/你的用户名/.claude/statusline/statusline.ps1\"",
-  "padding": 0
-}
-```
+### 3. 设置定价（可选）
 
-**Mac / Linux：**
-```jsonc
-"statusLine": {
-  "type": "command",
-  "command": "$HOME/.claude/statusline/statusline.sh",
-  "padding": 0
-}
-```
-
-Windows 用户请将 `你的用户名` 替换为实际用户名。
-
-### 3. 设置定价
-
-编辑 `statusline.ini`：
+编辑 `~/.claude/statusline/statusline.ini`，设置你所用模型的定价：
 
 ```ini
 # 默认定价 — 未匹配到具体模型时使用
@@ -122,10 +102,6 @@ currency=CNY
 - `currency=USD` → 显示 `$`
 - 定价按 `[模型ID]` 分段，脚本根据当前使用的模型自动匹配
 - 未匹配到时回退到 `[default]` 段
-
-### 4. 在 Claude Code 中发送任意消息
-
-状态栏会在首次交互后显示在终端底部。
 
 ## 配置说明
 

@@ -72,33 +72,13 @@ bash install.sh
 
 This copies the required files to `~/.claude/statusline/` and migrates any existing `statusline_state_*.json` files from `~/.claude/` to the new subdirectory.
 
-### 2. Configure Claude Code
+### 2. Send any message in Claude Code
 
-Add the following `"statusLine"` key to your **existing** `~/.claude/settings.json` (all projects) or `.claude/settings.json` (current project only). Do NOT replace the entire file — merge it alongside your other settings:
+The install script automatically adds the `statusLine` config to `~/.claude/settings.json`. The status bar appears at the bottom after the first interaction.
 
-**Windows:**
-```jsonc
-"statusLine": {
-  "type": "command",
-  "command": "powershell.exe -NoProfile -File \"C:/Users/your-username/.claude/statusline/statusline.ps1\"",
-  "padding": 0
-}
-```
+### 3. Set your pricing (optional)
 
-**Mac / Linux:**
-```jsonc
-"statusLine": {
-  "type": "command",
-  "command": "$HOME/.claude/statusline/statusline.sh",
-  "padding": 0
-}
-```
-
-Replace `your-username` (Windows) with your actual username.
-
-### 3. Set your pricing
-
-Edit `statusline.ini`:
+Edit `~/.claude/statusline/statusline.ini` to match your model's pricing:
 
 ```ini
 # Default pricing — used when no model-specific section matches
@@ -122,10 +102,6 @@ currency=CNY
 - `currency=USD` → `$` symbol
 - Pricing is matched by `[model_id]` section — the script looks up the current model automatically
 - Falls back to `[default]` when no specific section matches
-
-### 4. Send any message in Claude Code
-
-The status bar appears at the bottom after the first interaction.
 
 ## Configuration Reference
 

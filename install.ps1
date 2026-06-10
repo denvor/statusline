@@ -35,12 +35,44 @@ foreach ($f in $files) {
     }
 }
 
-Write-Host "`nMake sure your settings.json has the statusLine config:"
-Write-Host '  "statusLine": {'
-Write-Host '    "type": "command",'
-Write-Host '    "command": "powershell.exe -NoProfile -File \"' + $TargetDir.Replace('\', '/') + '/statusline.ps1\"",'
-Write-Host '    "padding": 0'
-Write-Host '  }'
+Write-Host "`n--- Configuring settings.json ---"
+$settingsDir = Split-Path $TargetDir -Parent  # ~/.claude/
+$settingsPath = Join-Path $settingsDir 'settings.json'
+$commandPath = ($TargetDir.Replace('\', '/') + '/statusline.ps1')
+$newStatusLine = @{
+    type    = 'command'
+    command = "powershell.exe -NoProfile -File `"$commandPath`""
+    padding = 0
+}
+
+$settings = @{}
+if (Test-Path $settingsPath) {
+    try {
+        $settings = Get-Content $settingsPath -Raw -Encoding UTF8 | ConvertFrom-Json
+        if ($null -eq $settings) { $settings = @{} }
+        # Convert PSCustomObject to hashtable for easier manipulation
+        $settings = @{}
+        $original = Get-Content $settingsPath -Raw -Encoding UTF8 | ConvertFrom-Json
+        $original.PSObject.Properties | ForEach-Object { $settings[$_.Name] = $_.Value }
+    } catch { $settings = @{} }
+}
+
+$changed = $false
+if ($settings.ContainsKey('statusLine')) {
+    $settings.Remove('statusLine')
+    $changed = $true
+    Write-Host "  Removed old statusLine entry"
+}
+
+$settings['statusLine'] = $newStatusLine
+$changed = $true
+
+if ($changed) {
+    $settings | ConvertTo-Json -Depth 5 | Out-File -FilePath $settingsPath -Encoding UTF8
+    Write-Host "  Added statusLine entry to: $settingsPath"
+} else {
+    Write-Host "  Already configured: $settingsPath"
+}
 
 # -------------------------------------------
 # Step 2: Migrate state files to subdirectory
