@@ -56,6 +56,13 @@ Each segment is color-coded for quick scanning:
 
 ## Quick Start
 
+### 0. Clone the repo
+
+```bash
+git clone https://github.com/denvor/statusline.git
+cd statusline
+```
+
 ### 1. Run the install script
 
 From the repo root:
