@@ -79,11 +79,15 @@ bash install.sh
 
 This copies the required files to `~/.claude/statusline/` and migrates any existing `statusline_state_*.json` files from `~/.claude/` to the new subdirectory.
 
-### 2. Send any message in Claude Code
+### 2. The install script also modifies `settings.json`
 
-The install script automatically adds the `statusLine` config to `~/.claude/settings.json`. The status bar appears at the bottom after the first interaction.
+The install script automatically adds a `statusLine` entry to `~/.claude/settings.json` — no manual editing needed.
 
-### 3. Set your pricing (optional)
+### 3. Restart Claude Code and send any message
+
+Restart Claude Code (or start a new session). The status bar appears at the bottom after the first interaction.
+
+### 4. Set your pricing (optional)
 
 Edit `~/.claude/statusline/statusline.ini` to match your model's pricing:
 
