@@ -1,5 +1,25 @@
 # 更新日志
 
+## [2026-06-15]
+
+### Changed
+- **statusline.sh** — 19 次独立 jq 调用合并为单次 `jq @tsv` 调用（每次调用的子进程 fork 从 ~25+ 减少到 ~3-4）
+- **statusline.sh** — 数字格式化从 awk 重写为纯 bash 邻近取整（`format_num` 函数使用整数运算）
+- **statusline.sh** — 费用计算从 3 次 awk 调用合并为 1 次
+- **statusline.sh** — INI 文件只读一次到缓存变量，从内存中解析两次代替两次磁盘读取
+- **statusline.ps1** — INI 双次读取合并为一次遍历；`$orderFromIni` 在一次解析中捕获
+- **statusline.ps1** — 移除死变量（`pctColor`、`tokenColor`、`$script_dir`）
+
+### Fixed
+- **statusline.sh** — jq 合并后 `is_worktree` 比较出错（`-eq 1` → `"true"` 字符串比较）
+- **statusline.sh** — `format_num` 取整截断改为邻近取整（1999 → 2.0K，而非 1.9K）
+- **statusline.ps1** — INI 显示顺序覆盖因变量名与默认数组冲突而从未生效
+- **install.ps1** — 移除死变量 `$changed` 和不可达的 else 分支；始终写入 settings.json
+
+### Added
+- 两个安装脚本均添加备份逻辑：重新安装前将 `statusline.ini` 备份为 `statusline.ini.bak`
+- README：快速开始增加 `git clone` 步骤；说明安装脚本也会修改 `settings.json`
+
 ## [2026-06-07]
 
 ### Added
