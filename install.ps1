@@ -28,6 +28,13 @@ $files = @(
 Write-Host "`n--- Installing to $TargetDir ---"
 foreach ($f in $files) {
     if (Test-Path $f.From) {
+        # Back up existing ini before overwriting
+        $dest = Join-Path $TargetDir $f.Name
+        if ($f.Name -eq 'statusline.ini' -and (Test-Path $dest)) {
+            $backup = Join-Path $TargetDir 'statusline.ini.bak'
+            Copy-Item -Path $dest -Destination $backup -Force
+            Write-Host "  BACKUP: statusline.ini → statusline.ini.bak"
+        }
         Copy-Item -Path $f.From -Destination $TargetDir -Force
         Write-Host "  OK: $($f.Name)"
     } else {
@@ -48,31 +55,22 @@ $newStatusLine = @{
 $settings = @{}
 if (Test-Path $settingsPath) {
     try {
-        $settings = Get-Content $settingsPath -Raw -Encoding UTF8 | ConvertFrom-Json
-        if ($null -eq $settings) { $settings = @{} }
-        # Convert PSCustomObject to hashtable for easier manipulation
-        $settings = @{}
         $original = Get-Content $settingsPath -Raw -Encoding UTF8 | ConvertFrom-Json
-        $original.PSObject.Properties | ForEach-Object { $settings[$_.Name] = $_.Value }
+        if ($null -ne $original) {
+            $original.PSObject.Properties | ForEach-Object { $settings[$_.Name] = $_.Value }
+        }
     } catch { $settings = @{} }
 }
 
-$changed = $false
 if ($settings.ContainsKey('statusLine')) {
     $settings.Remove('statusLine')
-    $changed = $true
     Write-Host "  Removed old statusLine entry"
 }
 
 $settings['statusLine'] = $newStatusLine
-$changed = $true
 
-if ($changed) {
-    $settings | ConvertTo-Json -Depth 5 | Out-File -FilePath $settingsPath -Encoding UTF8
-    Write-Host "  Added statusLine entry to: $settingsPath"
-} else {
-    Write-Host "  Already configured: $settingsPath"
-}
+$settings | ConvertTo-Json -Depth 5 | Out-File -FilePath $settingsPath -Encoding UTF8
+Write-Host "  Added statusLine entry to: $settingsPath"
 
 # -------------------------------------------
 # Step 2: Migrate state files to subdirectory

@@ -23,58 +23,51 @@ if ! echo "$raw_json" | jq empty 2>/dev/null; then
     exit 0
 fi
 
-# ── 2. Extract fields with jq ────────────────────────────────────────
-project_name=$(echo "$raw_json" | jq -r '
-    ( .workspace.project_dir // .cwd // "" | split("/") | .[-1] // "" )
-    // .workspace.repo.name // "..."
-')
+# ── 2. Extract fields with jq (single call, 1 fork vs 19) ────────────
+IFS=$'\t' read -r project_name model_raw context_pct context_size \
+    input_tokens output_tokens \
+    cur_in cur_out cur_cw cur_cr session_id duration_ms cc_cost \
+    is_worktree repo_host_raw project_dir effort_level thinking_enabled \
+    project_key < <(echo "$raw_json" | jq -r '
+    [
+        ((.workspace.project_dir // .cwd // "" | split("/") | .[-1] // "") // .workspace.repo.name // "..."),
+        (.model.display_name // "Unknown"),
+        (.context_window.used_percentage // 0 | floor),
+        (.context_window.context_window_size // 200000),
+        (.context_window.total_input_tokens // 0),
+        (.context_window.total_output_tokens // 0),
+        (.context_window.current_usage.input_tokens // 0),
+        (.context_window.current_usage.output_tokens // 0),
+        (.context_window.current_usage.cache_creation_input_tokens // 0),
+        (.context_window.current_usage.cache_read_input_tokens // 0),
+        (.session_id // "unknown"),
+        (.cost.total_duration_ms // 0),
+        (.cost.total_cost_usd // 0),
+        ((.worktree.name // "") + (.workspace.git_worktree // "") | length > 0),
+        (.workspace.repo.host // ""),
+        (.workspace.project_dir // .cwd // ""),
+        (.effort.level // ""),
+        (.thinking.enabled // false),
+        (.workspace.project_dir // .cwd // "unknown")
+    ]
+    | @tsv')
 [ -z "$project_name" ] && project_name="..."
 
-model_raw=$(echo "$raw_json" | jq -r '.model.display_name // "Unknown"')
 # Strip [1m] / [1M] context suffix added by third-party API providers
 model_clean=$(echo "$model_raw" | sed -E 's/\s*\[1[mi]\]$//')
 
-context_pct=$(echo "$raw_json" | jq -r '.context_window.used_percentage // 0')
-context_pct=$(awk -v p="$context_pct" 'BEGIN { printf "%d", p }')
-context_size=$(echo "$raw_json" | jq -r '.context_window.context_window_size // 200000')
-
-input_tokens=$(echo "$raw_json" | jq -r '.context_window.total_input_tokens // 0')
-output_tokens=$(echo "$raw_json" | jq -r '.context_window.total_output_tokens // 0')
-
-cur_in=$(echo "$raw_json" | jq -r '.context_window.current_usage.input_tokens // 0')
-cur_out=$(echo "$raw_json" | jq -r '.context_window.current_usage.output_tokens // 0')
-cur_cw=$(echo "$raw_json" | jq -r '.context_window.current_usage.cache_creation_input_tokens // 0')
-cur_cr=$(echo "$raw_json" | jq -r '.context_window.current_usage.cache_read_input_tokens // 0')
-
-session_id=$(echo "$raw_json" | jq -r '.session_id // "unknown"')
-
-duration_ms=$(echo "$raw_json" | jq -r '.cost.total_duration_ms // 0')
-cc_cost=$(echo "$raw_json" | jq -r '.cost.total_cost_usd // 0')
-
-# Worktree
-is_worktree=$(echo "$raw_json" | jq -r '(.worktree.name // "") + (.workspace.git_worktree // "")')
-[ -n "$is_worktree" ] && is_worktree=1 || is_worktree=0
-
-# Git branch
-git_branch=""
-repo_host=""
-repo_host_raw=$(echo "$raw_json" | jq -r '.workspace.repo.host // ""')
+# Git repo host suffix strip
 if [ -n "$repo_host_raw" ]; then
     repo_host=$(echo "$repo_host_raw" | sed 's/\.com$//;s/\.org$//')
 fi
-project_dir=$(echo "$raw_json" | jq -r '.workspace.project_dir // .cwd // ""')
+
+# Git branch
 if [ -n "$project_dir" ] && command -v git &>/dev/null; then
     branch=$(git -C "$project_dir" branch --show-current 2>/dev/null) || true
     if [ -n "$branch" ]; then
         git_branch=$(echo "$branch" | tr -d '[:space:]')
     fi
 fi
-
-# Effort
-effort_level=$(echo "$raw_json" | jq -r '.effort.level // ""')
-
-# Thinking mode
-thinking_enabled=$(echo "$raw_json" | jq -r '.thinking.enabled // false')
 
 # ── 3. Model name beautify ───────────────────────────────────────────
 case "$model_clean" in
@@ -93,7 +86,6 @@ case "$model_clean" in
 esac
 
 # ── 4. Read INI pricing ──────────────────────────────────────────────
-script_dir="${HOME}"
 statusline_dir="${HOME}/.claude/statusline"
 ini_path="${statusline_dir}/statusline.ini"
 
@@ -105,20 +97,21 @@ cache_read_price=0.50
 currency="CNY"
 
 # Parse INI: extract section matching $model_clean, fallback to default
-if [ -f "$ini_path" ]; then
+ini_content=""
+[ -f "$ini_path" ] && ini_content=$(cat "$ini_path")
+
+if [ -n "$ini_content" ]; then
     # Try specific model section first, then default
     for section in "$model_clean" "default"; do
-        section_data=$(awk -v sec="[$section]" '
+        section_data=$(echo "$ini_content" | awk -v sec="[$section]" '
             BEGIN { found=0 }
             $0 == sec   { found=1; next }
             /^\[/       { found=0 }
-            found && /^[^#;]/ && /=/ { print }
-        ' "$ini_path" 2>/dev/null)
+            found && /^[^#;]/ && /=/ { gsub(/^[[:space:]]+|[[:space:]]+$/, ""); print }
+        ')
 
         if [ -n "$section_data" ]; then
             while IFS='=' read -r key val; do
-                key=$(echo "$key" | xargs)
-                val=$(echo "$val" | xargs)
                 case "$key" in
                     input_price)       input_price="$val" ;;
                     output_price)      output_price="$val" ;;
@@ -141,8 +134,7 @@ fi
 
 # ── 5. Token accumulation with dedup ─────────────────────────────────
 
-# Project key for per-project tracking
-project_key=$(echo "$raw_json" | jq -r '.workspace.project_dir // .cwd // "unknown"')
+# Project key for per-project tracking (extracted in single jq call above)
 safe_name=$(echo "$project_key" | sed 's/[:\/\\]/_/g')
 state_path="${statusline_dir}/statusline_state_${safe_name}.json"
 
@@ -233,21 +225,17 @@ new_state=$(jq -n \
 mkdir -p "$statusline_dir" 2>/dev/null || true
 echo "$new_state" > "$state_path"
 
-# ── 6. Calculate cost ────────────────────────────────────────────────
-calc_cost() {
-    awk -v ci="$1" -v co="$2" -v cw="$3" -v cr="$4" \
-        -v ip="$input_price" -v op="$output_price" -v cwp="$cache_write_price" -v crp="$cache_read_price" \
-        'BEGIN {
-            total = (ci/1000000)*ip + (co/1000000)*op + (cw/1000000)*cwp + (cr/1000000)*crp;
-            printf "%.6f", total
-        }'
-}
-
-session_cost=$(calc_cost "$ses_in" "$ses_out" "$ses_cw" "$ses_cr")
-cumulative_cost=$(calc_cost "$cum_in" "$cum_out" "$cum_cw" "$cum_cr")
+# ── 6. Calculate cost (single awk call for both costs) ──────────────
+read session_cost cumulative_cost cum_is_zero <<< $(awk -v si="$ses_in" -v so="$ses_out" -v scw="$ses_cw" -v scr="$ses_cr" \
+    -v ci="$cum_in" -v co="$cum_out" -v ccw="$cum_cw" -v ccr="$cum_cr" \
+    -v ip="$input_price" -v op="$output_price" -v cwp="$cache_write_price" -v crp="$cache_read_price" \
+    'BEGIN {
+        s = (si/1000000)*ip + (so/1000000)*op + (scw/1000000)*cwp + (scr/1000000)*crp;
+        c = (ci/1000000)*ip + (co/1000000)*op + (ccw/1000000)*cwp + (ccr/1000000)*crp;
+        printf "%.6f %.6f %d", s, c, (c == 0.0) ? 1 : 0
+    }')
 
 # Fallback to Claude Code built-in cost
-cum_is_zero=$(awk -v c="$cumulative_cost" 'BEGIN { print (c == 0.0) ? 1 : 0 }')
 if [ "$cum_is_zero" -eq 1 ] && [ "$cc_cost" != "0" ] && [ -n "$cc_cost" ]; then
     cumulative_cost="$cc_cost"
 fi
@@ -275,13 +263,15 @@ format_duration() {
 }
 duration_str=$(format_duration "$duration_ms")
 
-# ── 8. Number formatting ─────────────────────────────────────────────
+# ── 8. Number formatting (pure bash, nearest rounding) ──────────────
 format_num() {
     local n=$1
     if [ "$n" -ge 1000000 ]; then
-        awk "BEGIN { printf \"%.1fM\", $n/1000000 }"
+        local t=$(( (n * 10 + 500000) / 1000000 ))
+        echo "$((t / 10)).$((t % 10))M"
     elif [ "$n" -ge 1000 ]; then
-        awk "BEGIN { printf \"%.1fK\", $n/1000 }"
+        local t=$(( (n * 10 + 500) / 1000 ))
+        echo "$((t / 10)).$((t % 10))K"
     else
         echo "$n"
     fi
@@ -307,7 +297,7 @@ thinking_icon=""
 [ "$thinking_enabled" = "true" ] && thinking_icon="T"
 
 project_icon="PR"
-[ "$is_worktree" -eq 1 ] && project_icon="WT"
+[ "$is_worktree" = "true" ] && project_icon="WT"
 
 # ── 10. ANSI colors ──────────────────────────────────────────────────
 e=$(printf '\033')
@@ -334,11 +324,11 @@ filled=$(( context_pct * bar_width / 100 ))
 empty=$((bar_width - filled))
 
 if [ "$context_pct" -gt 75 ]; then
-    bar_color="$bred"; pct_color="$bred"
+    bar_color="$bred"
 elif [ "$context_pct" -gt 50 ]; then
-    bar_color="$byellow"; pct_color="$byellow"
+    bar_color="$byellow"
 else
-    bar_color="$bgreen"; pct_color="$bgreen"
+    bar_color="$bgreen"
 fi
 
 bar_filled=$(printf '%*s' "$filled" '' | tr ' ' '=')
@@ -347,23 +337,14 @@ bar="${bar_color}${bar_filled}${dim}${bar_empty}${rst}"
 
 pct_str=$(printf '%3s' "$context_pct")
 
-# Token color
-if [ "$context_pct" -gt 75 ]; then
-    token_color="$bred"
-else
-    token_color="$dim"
-fi
-
-# Cost color
-cost_is_high=$(awk -v c="$cumulative_cost" -v s="$session_cost" 'BEGIN { print (c >= 1.0 || s >= 1.0) ? 1 : 0 }')
-cost_is_mid=$(awk -v c="$cumulative_cost" -v s="$session_cost" 'BEGIN { print ((c >= 0.5 && c < 1.0) || (s >= 0.5 && s < 1.0)) ? 1 : 0 }')
-if [ "$cost_is_high" -eq 1 ]; then
-    cost_color="$bred"
-elif [ "$cost_is_mid" -eq 1 ]; then
-    cost_color="$byellow"
-else
-    cost_color="$bgreen"
-fi
+# Cost color (single awk call instead of two)
+cost_color_code=$(awk -v c="$cumulative_cost" -v s="$session_cost" \
+    'BEGIN { if (c >= 1.0 || s >= 1.0) print 2; else if (c >= 0.5 || s >= 0.5) print 1; else print 0 }')
+case "$cost_color_code" in
+    2) cost_color="$bred" ;;
+    1) cost_color="$byellow" ;;
+    *) cost_color="$bgreen" ;;
+esac
 
 cost_str=$(printf '%s%.3f/%s%.3f' "$currency_symbol" "$session_cost" "$currency_symbol" "$cumulative_cost")
 
@@ -372,14 +353,14 @@ cost_str=$(printf '%s%.3f/%s%.3f' "$currency_symbol" "$session_cost" "$currency_
 # Default display order
 display_order=("project" "model" "thinking" "effort" "bar" "ctx" "call" "git" "time" "cost")
 
-# Override from INI [display] section
-if [ -f "$ini_path" ]; then
-    ini_order=$(awk '
+# Override from INI [display] section (parsed from ini_content read above)
+if [ -n "$ini_content" ]; then
+    ini_order=$(echo "$ini_content" | awk '
         BEGIN { found=0 }
         /^\[display\]/ { found=1; next }
         /^\[/          { found=0 }
-        found && /^[^#;]/ && /order/ { print; exit }
-    ' "$ini_path" 2>/dev/null | sed 's/^[^=]*=\s*//;s/\s*$//')
+        found && /^[^#;]/ && /order/ { sub(/^[^=]*=[[:space:]]*/, ""); sub(/[[:space:]]*$/, ""); print; exit }
+    ')
 
     if [ -n "$ini_order" ]; then
         IFS=',' read -ra display_order <<< "$ini_order"
@@ -395,8 +376,8 @@ fields[project]="${bold}${bcyan}[${project_icon}] ${project_name}${rst}"
 fields[model]="${bmagenta}${model_display}${rst}"
 [ -n "$thinking_icon" ] && fields[thinking]="${bcyan}${thinking_icon}${rst}" || fields[thinking]=""
 [ -n "$effort_icon" ]   && fields[effort]="${byellow}${effort_icon}${rst}"      || fields[effort]=""
-fields[bar]="${bar} ${bold}${pct_color}${pct_str}%${rst}"
-fields[ctx]="ctx: ${bwhite}${input_str}/${output_str}${rst} ${dim}/${bold}${pct_color}${context_size_str}${rst}"
+fields[bar]="${bar} ${bold}${bar_color}${pct_str}%${rst}"
+fields[ctx]="ctx: ${bwhite}${input_str}/${output_str}${rst} ${dim}/${bold}${bar_color}${context_size_str}${rst}"
 fields[call]="call: ${bwhite}i${rst}${bwhite}${call_in_str}${rst} ${bwhite}o${rst}${bwhite}${call_out_str}${rst}"
 
 git_field=""

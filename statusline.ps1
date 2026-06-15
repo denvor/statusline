@@ -89,8 +89,9 @@ $pricing = @{
     currency          = 'CNY'
 }
 
-# Try to read INI file (section-based: [model_name] -> pricing)
+# Try to read INI file (section-based: [model_name] -> pricing, [display] -> order)
 $iniSections = @{}
+$orderFromIni = $null
 if (Test-Path $iniPath) {
     try {
         $currentSection = ''
@@ -111,6 +112,8 @@ if (Test-Path $iniPath) {
                     $iniSections[$currentSection][$key] = [double]$val
                 } elseif ($key -eq 'currency') {
                     $iniSections[$currentSection]['currency'] = $val.ToUpper()
+                } elseif ($currentSection -eq 'display' -and $key -eq 'order') {
+                    $orderFromIni = $val
                 }
             }
         }
@@ -146,8 +149,6 @@ $statePath = Join-Path $statuslineDir $stateFile
 
 $cumIn = 0; $cumOut = 0; $cumCW = 0; $cumCR = 0
 $sesIn = 0; $sesOut = 0; $sesCW = 0; $sesCR = 0
-
-# Read existing state (per-project file, no projects wrapper)
 $projState = $null
 if (Test-Path $statePath) {
     try {
@@ -305,9 +306,9 @@ $filled = [math]::Max(0, [math]::Floor($contextPct * $barWidth / 100))
 if ($contextPct -gt 0 -and $filled -eq 0) { $filled = 1 }
 $empty = $barWidth - $filled
 
-if ($contextPct -gt 75)       { $barColor = $bred;    $pctColor = $bred }
-elseif ($contextPct -gt 50)   { $barColor = $byellow; $pctColor = $byellow }
-else                          { $barColor = $bgreen;  $pctColor = $bgreen }
+if ($contextPct -gt 75)       { $barColor = $bred }
+elseif ($contextPct -gt 50)   { $barColor = $byellow }
+else                          { $barColor = $bgreen }
 
 $barFilled = "=" * $filled
 $barEmpty  = "-" * $empty
@@ -322,8 +323,6 @@ function Format-Num($n) {
 }
 $inputStr  = Format-Num $inputTokens
 $outputStr = Format-Num $outputTokens
-$tokenColor = if ($contextPct -gt 75) { $bred } else { $dim }
-
 # Per-call token display (for line 2)
 $callInStr  = Format-Num $curIn
 $callOutStr = Format-Num $curOut
@@ -338,22 +337,9 @@ $costStr = "${currencySymbol}$($sessionCost.ToString('F3'))/${currencySymbol}$($
 
 $displayOrder = @('project', 'model', 'thinking', 'effort', 'bar', 'ctx', 'call', 'git', 'time', 'cost')
 
-# Override from INI [display] section
-if (Test-Path $iniPath) {
-    try {
-        $inDisplay = $false
-        foreach ($dline in (Get-Content $iniPath -Encoding UTF8 -ErrorAction Stop)) {
-            $dtrimmed = $dline.Trim()
-            if ($dtrimmed -match '^[#;]' -or $dtrimmed -eq '') { continue }
-            if ($dtrimmed -eq '[display]') { $inDisplay = $true; continue }
-            if ($dtrimmed -match '^\[.+\]$') { $inDisplay = $false; continue }
-            if ($inDisplay -and $dtrimmed -match '^\s*order\s*=\s*(.+?)\s*$') {
-                $raw = $Matches[1].Trim()
-                $displayOrder = $raw -split '\s*,\s*' | ForEach-Object { $_.Trim() } | Where-Object { $_ }
-                break
-            }
-        }
-    } catch {}
+# Override from INI [display] section (captured during first INI parse above)
+if ($orderFromIni) {
+    $displayOrder = $orderFromIni -split '\s*,\s*' | ForEach-Object { $_.Trim() } | Where-Object { $_ }
 }
 
 $projectIcon = if ($isWorktree) { 'WT' } else { 'PR' }
@@ -362,8 +348,8 @@ $fields['project']  = "${bold}${bcyan}[${projectIcon}] ${projectName}${rst}"
 $fields['model']    = "${bmagenta}${modelDisplay}${rst}"
 $fields['thinking'] = if ($thinkingIcon) { "${bcyan}${thinkingIcon}${rst}" } else { '' }
 $fields['effort']   = if ($effortIcon)   { "${yellow}${effortIcon}${rst}" }      else { '' }
-$fields['bar']      = "${bar} ${bold}${pctColor}${pctStr}%${rst}"
-$fields['ctx']      = "ctx: ${bwhite}${inputStr}/${outputStr}${rst} ${dim}/${bold}${pctColor}${contextSizeStr}${rst}"
+$fields['bar']      = "${bar} ${bold}${barColor}${pctStr}%${rst}"
+$fields['ctx']      = "ctx: ${bwhite}${inputStr}/${outputStr}${rst} ${dim}/${bold}${barColor}${contextSizeStr}${rst}"
 $fields['call']     = "call: ${bwhite}i${rst}${bwhite}${callInStr}${rst} ${bwhite}o${rst}${bwhite}${callOutStr}${rst}"
 
 $gitField = ''

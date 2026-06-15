@@ -23,6 +23,11 @@ FILES=("statusline.sh" "statusline.ini")
 
 for f in "${FILES[@]}"; do
     if [[ -f "${SCRIPT_DIR}/${f}" ]]; then
+        # Back up existing ini before overwriting
+        if [[ "$f" == "statusline.ini" && -f "$TARGET_DIR/$f" ]]; then
+            cp "$TARGET_DIR/$f" "$TARGET_DIR/statusline.ini.bak"
+            echo "  BACKUP: statusline.ini → statusline.ini.bak"
+        fi
         cp "${SCRIPT_DIR}/${f}" "$TARGET_DIR"
         echo "  OK: $f"
     else
@@ -34,7 +39,7 @@ chmod +x "${TARGET_DIR}/statusline.sh" 2>/dev/null || true
 echo "  +x: statusline.sh"
 
 # -------------------------------------------
-# Step 3: Configure settings.json
+# Step 2: Configure settings.json
 # -------------------------------------------
 SETTINGS_PATH="${HOME}/.claude/settings.json"
 
@@ -61,7 +66,7 @@ else
 fi
 
 # -------------------------------------------
-# Step 2: Migrate state files to subdirectory
+# Step 3: Migrate state files to subdirectory
 # -------------------------------------------
 OLD_DIR="$HOME/.claude"
 count=0
