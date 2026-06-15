@@ -56,6 +56,13 @@
 
 ## 快速开始
 
+### 0. 克隆仓库
+
+```bash
+git clone https://github.com/denvor/statusline.git
+cd statusline
+```
+
 ### 1. 运行安装脚本
 
 在仓库根目录执行：
@@ -72,11 +79,15 @@ bash install.sh
 
 脚本会自动将所需文件复制到 `~/.claude/statusline/`，并将 `~/.claude/` 下已有的 `statusline_state_*.json` 状态文件迁移到新子目录。
 
-### 2. 在 Claude Code 中发送任意消息
+### 2. 安装脚本也会修改 `settings.json`
 
-安装脚本会自动将 `statusLine` 配置写入 `~/.claude/settings.json`。状态栏会在首次交互后显示在终端底部。
+安装脚本会自动在 `~/.claude/settings.json` 中添加 `statusLine` 配置项，无需手动编辑。
 
-### 3. 设置定价（可选）
+### 3. 重启 Claude Code 并发送任意消息
+
+重启 Claude Code（或启动新会话）。发送任意消息后底部即显示状态栏。
+
+### 4. 设置定价（可选）
 
 编辑 `~/.claude/statusline/statusline.ini`，设置你所用模型的定价：
 
