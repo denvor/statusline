@@ -11,7 +11,7 @@
 ```
 ┌─ 状态栏（显示在 Claude Code 底部）─────────────────────────────────────────────────┐
 │ [PR] hello │ DeepSeek V4 Pro T H │ ========------------ 42% │ ctx: 18.5K/3.2K     │
-│ /200K │ call: i5K o1.2K @github │ time 5m │ ¥0.004/¥0.009                       │
+│ /200K │ call: i5K o1.2K @github │ time 5m │ ¥0.004 / ¥0.001 / ¥0.009                       │
 └──────────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -29,7 +29,7 @@
 | 单次调用 | `call: i5K o1.2K` | 亮白色 |
 | Git 信息 | `git:main @github` | 青色 |
 | 会话时长 | `time 5m` | 蓝色 |
-| 会话 / 项目费用 | `¥0.004/¥0.009` | 绿 → 黄 → 红（随金额变化） |
+| 会话 / subagent / 项目费用 | `¥0.004 / ¥0.001 / ¥0.009` | 绿 → 黄 → 红（随金额变化） |
 
 ## 功能特性
 
@@ -42,6 +42,7 @@
 - **多币种** — 支持 `¥`（CNY）或 `$`（USD）
 - **按项目独立追踪** — 不同项目目录的费用分别统计，存储在各自独立的 `statusline_state_<项目>.json` 文件中
 - **会话/项目费用分离** — 显示 `会话费用/项目累计费用`；新会话清零左侧，项目费用持续累加
+- **Subagent 费用追踪** — 扫描 `~/.claude/projects/` 目录下的 JSONL 文件，捕获 subagent（如 code-review）的 token 用量，显示为 `¥主会话 / ¥subagent / ¥总`
 - **防抖去重** — 检测并跳过 Claude Code 300ms 防抖导致的重复调用
 - **Git 信息** — 分支名 + 远程仓库（如 `@github`）
 - **Worktree 感知** — git worktree 中显示 `[WT]` 前缀
@@ -133,6 +134,22 @@ currency=CNY
 
 每个 `[模型ID]` 段内可独立配置以上 5 个 key。如果 INI 文件缺失，使用硬编码默认值。
 
+### `[jsonl]` 段
+
+控制 JSONL 扫描 subagent 费用的频率：
+
+```ini
+[jsonl]
+# 每 N 次 statusline 触发扫描一次（默认 10，设为 0 可禁用）
+sync_interval = 10
+```
+
+| 键 | 说明 | 默认值 |
+|----|------|--------|
+| `sync_interval` | JSONL 扫描周期（两次扫描之间的触发次数）。增大值减少 I/O，减小值更快反映 subagent 费用 | `10` |
+
+> **说明：** JSONL 扫描递归读取 `~/.claude/projects/<项目>/` 下所有 `*.jsonl` 文件，解析 `type == "assistant"` 且包含 `usage` 数据的消息，通过 `(时间戳, input, output)` 签名去重。会话启动时自动快照基线，确保只统计当前会话期间的 token 消耗。
+
 ### `[display]` 段
 
 控制状态栏中显示哪些字段及排列顺序：
@@ -161,7 +178,7 @@ order = project, model, thinking, effort, bar, ctx, call, git, time, cost
 ## 输出布局
 
 ```
-[图标] 项目名 │ 模型 │ T │ H │ ========------ 42% │ ctx: 18.5K/3.2K /200K │ call: i5K o1.2K │ git:main @github │ time 5m │ ¥0.004/¥0.009
+[图标] 项目名 │ 模型 │ T │ H │ ========------ 42% │ ctx: 18.5K/3.2K /200K │ call: i5K o1.2K │ git:main @github │ time 5m │ ¥0.004 / ¥0.001 / ¥0.009
   ①      ②    ③   ④             ⑤                         ⑥                  ⑦                  ⑧             ⑨            ⑩
 ```
 
@@ -176,7 +193,7 @@ order = project, model, thinking, effort, bar, ctx, call, git, time, cost
 | ⑦ | 单次调用 | `call: i5K o1.2K` | 亮白色 |
 | ⑧ | Git | `git:main @github` | 青色 |
 | ⑨ | 会话时长 | `time 5m` | 蓝色 |
-| ⑩ | 会话/项目费用 | `¥0.004/¥0.009` | 绿→黄→红 |
+| ⑩ | 会话 / subagent / 项目费用 | `¥0.004 / ¥0.001 / ¥0.009` | 绿→黄→红 |
 
 > **图标说明：** `T` = 扩展思考已开启，`H`/`X`/`M`/`L`/`!` = 推理强度（高/极高/中/低/最大），`[WT]` = 处于 git worktree 中。空字段（如无思考模式、无 git 分支）自动隐藏。字段顺序由 `[display]` 段的 `order` 控制。
 
@@ -187,10 +204,11 @@ Claude Code 在每次助手消息后通过 stdin 向脚本传入 JSON 快照。�
 1. 解析 JSON（`ConvertFrom-Json`）
 2. 从 `context_window.current_usage` 提取单次调用的 Token 数
 3. 读写 `statusline_state_<项目>.json` 中的累计数据（每个项目一个独立文件，区分会话费用和累计费用）
-4. 从 `statusline.ini` 加载定价（缺失则用默认值）
-5. 计算费用：`Σ(Token / 1,000,000 × 单价)`，覆盖四种 Token 类型
-6. 当 `current_usage` 与上次相同时跳过累加（防止防抖重复计入）
-7. 输出一行 ANSI 彩色文本到 stdout，显示会话费用/项目累计费用
+4. **定期扫描 `~/.claude/projects/<项目>/*.jsonl`** 获取 subagent API 调用的 token 用量，通过 `(时间戳, input, output)` 签名去重，并在会话启动时快照基线以隔离本次会话的 subagent 费用
+5. 从 `statusline.ini` 加载定价（缺失则用默认值）
+6. 计算费用：`Σ(Token / 1,000,000 × 单价)`，覆盖四种 Token 类型
+7. 当 `current_usage` 与上次相同时跳过累加（防止防抖重复计入）
+8. 输出一行 ANSI 彩色文本到 stdout，显示主会话费用 / subagent 费用 / 项目总费用
 
 状态文件按项目目录独立追踪。新会话启动时会话费用清零，项目累计费用保留。
 
@@ -201,7 +219,7 @@ Claude Code 在每次助手消息后通过 stdin 向脚本传入 JSON 快照。�
 | `statusline.ps1` | Windows 脚本 — 读取 stdin，累计 Token，输出状态栏 |
 | `statusline.sh` | Mac / Linux 脚本 — 功能相同，使用 jq 解析 JSON |
 | `statusline.ini` | 用户可编辑的定价配置 |
-| `statusline_state_<项目>.json` | 自动生成 — 每个项目一个独立文件，持久化 Token 累计数据（会话 + 累计） |
+| `statusline_state_<项目>.json` | 自动生成 — 每个项目一个独立文件，持久化 Token 累计数据（会话 + 累计 + JSONL 扫描结果 + 基线） |
 | `install.ps1` / `install.sh` | 安装脚本 — 复制文件到 `~/.claude/statusline/` 并迁移旧状态文件 |
 
 ## 常见问题
@@ -223,10 +241,11 @@ Claude Code 在每次助手消息后通过 stdin 向脚本传入 JSON 快照。�
 
 ### Token 是从项目开始累计的，还是只算当前会话？
 
-**两者同时追踪。** 费用显示格式为 `会话费用/项目累计费用`：
+**两者同时追踪。** 费用显示格式为 `主会话费用 / subagent 费用 / 项目总费用`：
 
-- **会话费用**（`/` 左侧）：每次启动 Claude Code 新会话时清零，只统计本次对话。
-- **项目累计费用**（`/` 右侧）：该项目的累计费用，跨会话持续累加。
+- **主会话费用**（左）：每次启动 Claude Code 新会话时清零，只统计本次对话的主会话消耗。
+- **Subagent 费用**（中）：通过 JSONL 文件扫描检测到的子代理（如 code-review）token 消耗，按会话独立统计。
+- **项目总费用**（右）：该项目的累计总费用，跨会话持续累加，包含主会话和 subagent。
 
 Token 按**项目目录**独立追踪 — 不同项目有各自的计数器，存储在各自的 `statusline_state_<项目>.json` 文件中。
 
@@ -251,7 +270,7 @@ claude --continue --fork-session
 1. 检测到 `session_id` 不匹配 → 判定为新会话
 2. **重置会话计数器**为零（重新开始累加）
 3. **保留累计计数器**（项目总计继续增长）
-4. 显示 `新会话费用 / 项目累计费用`
+4. 显示 `主会话费用 / subagent 费用 / 项目总费用`（JSONL 扫描可用时）或 `会话费用/项目累计费用`（尚未扫描时）
 
 这是 `claude`（全新启动）、`claude --continue --fork-session` 和 `/resume` 的正常行为 — 这三种方式都会分配新的 `session_id`。
 

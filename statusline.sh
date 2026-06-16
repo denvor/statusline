@@ -132,6 +132,22 @@ else
     currency_symbol='$'
 fi
 
+# JSONL sync interval (from INI [jsonl] section, default 10)
+jsonl_sync_interval=10
+if [ -n "$ini_content" ]; then
+    ini_interval=$(echo "$ini_content" | awk '
+        BEGIN { found=0 }
+        /^\[jsonl\]/ { found=1; next }
+        /^\[/        { found=0 }
+        found && /^[^#;]/ && /sync_interval/ { sub(/^[^=]*=[[:space:]]*/, ""); sub(/[[:space:]]*$/, ""); print; exit }
+    ')
+    [ -n "$ini_interval" ] && jsonl_sync_interval="$ini_interval"
+    # 校验：仅接受纯数字，否则回退默认值
+    case "$jsonl_sync_interval" in
+        ''|*[!0-9]*) jsonl_sync_interval=10;;
+    esac
+fi
+
 # ── 5. Token accumulation with dedup ─────────────────────────────────
 
 # Project key for per-project tracking (extracted in single jq call above)
@@ -151,8 +167,22 @@ fi
 if [ -z "$proj_state" ]; then
     is_new_project=1
     is_new_session=1
+    jsonl_input=0; jsonl_output=0; jsonl_cw=0; jsonl_cr=0; jsonl_scan_count=0
+    jsonl_baseline_input=0; jsonl_baseline_output=0; jsonl_baseline_cw=0; jsonl_baseline_cr=0
+    jsonl_ever_scanned=0
 else
     is_new_project=0
+    # Load cached JSONL scan results from state
+    jsonl_input=$(echo "$proj_state" | jq -r '.jsonl_input // 0')
+    jsonl_output=$(echo "$proj_state" | jq -r '.jsonl_output // 0')
+    jsonl_cw=$(echo "$proj_state" | jq -r '.jsonl_cache_write // 0')
+    jsonl_cr=$(echo "$proj_state" | jq -r '.jsonl_cache_read // 0')
+    jsonl_scan_count=$(echo "$proj_state" | jq -r '.jsonl_scan_count // 0')
+    jsonl_baseline_input=$(echo "$proj_state" | jq -r '.jsonl_baseline_input // 0')
+    jsonl_baseline_output=$(echo "$proj_state" | jq -r '.jsonl_baseline_output // 0')
+    jsonl_baseline_cw=$(echo "$proj_state" | jq -r '.jsonl_baseline_cache_write // 0')
+    jsonl_baseline_cr=$(echo "$proj_state" | jq -r '.jsonl_baseline_cache_read // 0')
+    jsonl_ever_scanned=$(echo "$proj_state" | jq -r '.jsonl_ever_scanned // 0')
     proj_session=$(echo "$proj_state" | jq -r '.session_id // ""')
     if [ "$session_id" != "unknown" ] && [ "$proj_session" != "$session_id" ]; then
         is_new_session=1
@@ -209,17 +239,49 @@ else
     fi
 fi
 
+# New session: snapshot JSONL total as baseline for per-session subagent tracking
+if [ "$is_new_session" -eq 1 ] && [ "$is_new_project" -eq 0 ]; then
+    jsonl_baseline_input=$jsonl_input
+    jsonl_baseline_output=$jsonl_output
+    jsonl_baseline_cw=$jsonl_cw
+    jsonl_baseline_cr=$jsonl_cr
+fi
+
+# ── Periodic JSONL scan for subagent cost ─────────────────────
+jsonl_scan_count=$((jsonl_scan_count + 1))
+if [ "$jsonl_sync_interval" -gt 0 ] && [ "$jsonl_scan_count" -ge "$jsonl_sync_interval" ]; then
+    jsonl_scan_count=0
+    jsonl_result=$(sync_jsonl_cost "$project_key" 2>/dev/null) || true
+    if [ -n "$jsonl_result" ]; then
+        jsonl_input=$(echo "$jsonl_result" | jq -r '.input // 0')
+        jsonl_output=$(echo "$jsonl_result" | jq -r '.output // 0')
+        jsonl_cw=$(echo "$jsonl_result" | jq -r '.cw // 0')
+        jsonl_cr=$(echo "$jsonl_result" | jq -r '.cr // 0')
+        jsonl_ever_scanned=1
+    fi
+fi
+
 # Save state (single project per file)
 new_state=$(jq -n \
     --arg sid "$session_id" \
     --argjson si "$ses_in" --argjson so "$ses_out" --argjson scw "$ses_cw" --argjson scr "$ses_cr" \
     --argjson ci "$cum_in" --argjson co "$cum_out" --argjson ccw "$cum_cw" --argjson ccr "$cum_cr" \
     --argjson li "$cur_in" --argjson lo "$cur_out" --argjson lcw "$cur_cw" --argjson lcr "$cur_cr" \
+    --argjson ji "$jsonl_input" --argjson jo "$jsonl_output" --argjson jcw "$jsonl_cw" --argjson jcr "$jsonl_cr" \
+    --argjson jsc "$jsonl_scan_count" \
+    --argjson jbi "$jsonl_baseline_input" --argjson jbo "$jsonl_baseline_output" \
+    --argjson jbcw "$jsonl_baseline_cw" --argjson jbcr "$jsonl_baseline_cr" \
+    --argjson jes "$jsonl_ever_scanned" \
     '{
         session_id: $sid,
         session_input: $si, session_output: $so, session_cache_write: $scw, session_cache_read: $scr,
         cumulative_input: $ci, cumulative_output: $co, cumulative_cache_write: $ccw, cumulative_cache_read: $ccr,
-        last_input: $li, last_output: $lo, last_cache_write: $lcw, last_cache_read: $lcr
+        last_input: $li, last_output: $lo, last_cache_write: $lcw, last_cache_read: $lcr,
+        jsonl_input: $ji, jsonl_output: $jo, jsonl_cache_write: $jcw, jsonl_cache_read: $jcr,
+        jsonl_scan_count: $jsc,
+        jsonl_baseline_input: $jbi, jsonl_baseline_output: $jbo,
+        jsonl_baseline_cache_write: $jbcw, jsonl_baseline_cache_read: $jbcr,
+        jsonl_ever_scanned: $jes
     }')
 # Ensure statusline directory exists
 mkdir -p "$statusline_dir" 2>/dev/null || true
@@ -262,6 +324,40 @@ format_duration() {
     echo "${hr}h${rem}m"
 }
 duration_str=$(format_duration "$duration_ms")
+
+# ── JSONL subagent cost scan ─────────────────────────────────
+sync_jsonl_cost() {
+    local project_dir="$1"
+    local session_dir_name
+    session_dir_name=$(echo "$project_dir" | sed 's/[:\/\\]/-/g')
+    local target_dir="${HOME}/.claude/projects/${session_dir_name}"
+
+    if [ ! -d "$target_dir" ]; then
+        return 1
+    fi
+
+    local result
+    result=$(find "$target_dir" -name '*.jsonl' -type f -print0 2>/dev/null | \
+        xargs -0 cat 2>/dev/null | \
+        jq -s '
+            [ .[] | select(.type == "assistant")
+                  | select(.message.usage // empty | (.input_tokens // 0) + (.output_tokens // 0) > 0)
+                  | { timestamp, usage: .message.usage }
+            ] as $all
+            | $all
+            | unique_by("\(.timestamp)|\(.usage.input_tokens)|\(.usage.output_tokens)")
+            | { input: [.[].usage.input_tokens] | add // 0,
+                output: [.[].usage.output_tokens] | add // 0,
+                cw: [.[].usage.cache_creation_input_tokens] | add // 0,
+                cr: [.[].usage.cache_read_input_tokens] | add // 0 }
+        ' 2>/dev/null) || true
+
+    if [ -z "$result" ] || [ "$result" = "null" ]; then
+        return 1
+    fi
+
+    echo "$result"
+}
 
 # ── 8. Number formatting (pure bash, nearest rounding) ──────────────
 format_num() {
@@ -337,16 +433,52 @@ bar="${bar_color}${bar_filled}${dim}${bar_empty}${rst}"
 
 pct_str=$(printf '%3s' "$context_pct")
 
-# Cost color (single awk call instead of two)
-cost_color_code=$(awk -v c="$cumulative_cost" -v s="$session_cost" \
-    'BEGIN { if (c >= 1.0 || s >= 1.0) print 2; else if (c >= 0.5 || s >= 0.5) print 1; else print 0 }')
+# ── JSONL session delta for cost display ──────────────────────
+jsonl_session_input=$(( jsonl_input - jsonl_baseline_input ))
+jsonl_session_output=$(( jsonl_output - jsonl_baseline_output ))
+jsonl_session_cw=$(( jsonl_cw - jsonl_baseline_cw ))
+jsonl_session_cr=$(( jsonl_cr - jsonl_baseline_cr ))
+[ "$jsonl_session_input" -lt 0 ] && jsonl_session_input=0
+[ "$jsonl_session_output" -lt 0 ] && jsonl_session_output=0
+[ "$jsonl_session_cw" -lt 0 ] && jsonl_session_cw=0
+[ "$jsonl_session_cr" -lt 0 ] && jsonl_session_cr=0
+
+# 合并三次 awk 为一次：同时计算 jsonl_session_cost / jsonl_total_cost / sub_session_cost
+read jsonl_session_cost jsonl_total_cost sub_session_cost <<< $(awk \
+    -v si="$jsonl_session_input" -v so="$jsonl_session_output" \
+    -v scw="$jsonl_session_cw" -v scr="$jsonl_session_cr" \
+    -v ji="$jsonl_input" -v jo="$jsonl_output" -v jcw="$jsonl_cw" -v jcr="$jsonl_cr" \
+    -v sc="$session_cost" \
+    -v ip="$input_price" -v op="$output_price" -v cwp="$cache_write_price" -v crp="$cache_read_price" \
+    'BEGIN {
+        jsc = (si/1000000)*ip + (so/1000000)*op + (scw/1000000)*cwp + (scr/1000000)*crp;
+        jtc = (ji/1000000)*ip + (jo/1000000)*op + (jcw/1000000)*cwp + (jcr/1000000)*crp;
+        sub = jsc - sc; if (sub < 0) sub = 0;
+        printf "%.6f %.6f %.6f", jsc, jtc, sub
+    }')
+
+if [ "$jsonl_ever_scanned" = "1" ]; then
+    # 已扫描过，显示完整三值：主会话 / subagent / 项目总（含sub）
+    cost_threshold="$jsonl_total_cost"
+    cost_str=$(printf '%s%.3f / %s%.3f / %s%.3f' \
+        "$currency_symbol" "$session_cost" \
+        "$currency_symbol" "$sub_session_cost" \
+        "$currency_symbol" "$jsonl_total_cost")
+else
+    # 尚未扫描，用旧两值格式
+    cost_threshold=$(awk -v c="$cumulative_cost" -v s="$session_cost" \
+        'BEGIN { if (c > s) print c; else print s }')
+    cost_str=$(printf '%s%.3f/%s%.3f' \
+        "$currency_symbol" "$session_cost" \
+        "$currency_symbol" "$cumulative_cost")
+fi
+cost_color_code=$(awk -v v="$cost_threshold" \
+    'BEGIN { if (v >= 1.0) print 2; else if (v >= 0.5) print 1; else print 0 }')
 case "$cost_color_code" in
     2) cost_color="$bred" ;;
     1) cost_color="$byellow" ;;
     *) cost_color="$bgreen" ;;
 esac
-
-cost_str=$(printf '%s%.3f/%s%.3f' "$currency_symbol" "$session_cost" "$currency_symbol" "$cumulative_cost")
 
 # ── 12. Build output line ────────────────────────────────────────────
 
@@ -389,6 +521,8 @@ fields[git]="$git_field"
 
 [ -n "$duration_str" ] && fields[time]="${bblue}time ${rst}${duration_str}" || fields[time]=""
 fields[cost]="${bold}${cost_color}${cost_str}${rst}"
+
+# Build field map
 
 # Build line from display order
 line=""

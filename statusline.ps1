@@ -92,6 +92,7 @@ $pricing = @{
 # Try to read INI file (section-based: [model_name] -> pricing, [display] -> order)
 $iniSections = @{}
 $orderFromIni = $null
+$jsonlSyncInterval = 10   # 默认每 N 次触发扫描一次 JSONL（subagent 统计）
 if (Test-Path $iniPath) {
     try {
         $currentSection = ''
@@ -114,6 +115,8 @@ if (Test-Path $iniPath) {
                     $iniSections[$currentSection]['currency'] = $val.ToUpper()
                 } elseif ($currentSection -eq 'display' -and $key -eq 'order') {
                     $orderFromIni = $val
+                } elseif ($currentSection -eq 'jsonl' -and $key -eq 'sync_interval') {
+                    $jsonlSyncInterval = [int]$val
                 }
             }
         }
@@ -156,6 +159,19 @@ if (Test-Path $statePath) {
         $projState = $rawState | ConvertFrom-Json
     } catch {}
 }
+
+# Load cached JSONL scan results from state (persist across invocations)
+$jsonlInput  = if ($projState.jsonl_input)  { [int]$projState.jsonl_input }  else { 0 }
+$jsonlOutput = if ($projState.jsonl_output) { [int]$projState.jsonl_output } else { 0 }
+$jsonlCW     = if ($projState.jsonl_cache_write) { [int]$projState.jsonl_cache_write } else { 0 }
+$jsonlCR     = if ($projState.jsonl_cache_read)  { [int]$projState.jsonl_cache_read }  else { 0 }
+$jsonlScanCount = if ($projState.jsonl_scan_count) { [int]$projState.jsonl_scan_count } else { 0 }
+$jsonlBaselineInput  = if ($projState.jsonl_baseline_input)  { [int]$projState.jsonl_baseline_input }  else { 0 }
+$jsonlBaselineOutput = if ($projState.jsonl_baseline_output) { [int]$projState.jsonl_baseline_output } else { 0 }
+$jsonlBaselineCW     = if ($projState.jsonl_baseline_cache_write) { [int]$projState.jsonl_baseline_cache_write } else { 0 }
+$jsonlBaselineCR     = if ($projState.jsonl_baseline_cache_read)  { [int]$projState.jsonl_baseline_cache_read }  else { 0 }
+$jsonlEverScanned    = if ($projState.jsonl_ever_scanned) { $true } else { $false }
+
 $isNewProject = (-not $projState)
 
 # Check if session changed or new (per-project)
@@ -198,6 +214,58 @@ if ($isNewProject) {
     }
 }
 
+# New session: snapshot JSONL total as baseline for per-session subagent tracking
+if ($isNewSession -and -not $isNewProject) {
+    $jsonlBaselineInput  = $jsonlInput
+    $jsonlBaselineOutput = $jsonlOutput
+    $jsonlBaselineCW     = $jsonlCW
+    $jsonlBaselineCR     = $jsonlCR
+}
+
+# --- Periodic JSONL scan for subagent cost ---
+$jsonlScanCount++
+if ($jsonlSyncInterval -gt 0 -and $jsonlScanCount -ge $jsonlSyncInterval) {
+    $jsonlScanCount = 0
+    try {
+        $projectsDir = Join-Path (Join-Path $scriptDir '.claude') 'projects'
+        $sessionDirName = $projectKey -replace '[:\\/]', '-'
+        $targetDir = Join-Path $projectsDir $sessionDirName
+        if (Test-Path $targetDir) {
+            $jsonlTotalInput = 0; $jsonlTotalOutput = 0; $jsonlTotalCW = 0; $jsonlTotalCR = 0
+            $jsseen = @{}
+            Get-ChildItem $targetDir -Recurse -Filter *.jsonl -ErrorAction SilentlyContinue | ForEach-Object {
+                try {
+                    Get-Content $_.FullName -Encoding UTF8 -ErrorAction SilentlyContinue | ForEach-Object {
+                        $line = $_.Trim()
+                        if (-not $line) { return }
+                        try { $jsdata = $line | ConvertFrom-Json } catch { return }
+                        if ($jsdata.type -ne 'assistant') { return }
+                        $jsmsg = $jsdata.message
+                        if (-not $jsmsg) { return }
+                        $jsusage = $jsmsg.usage
+                        if (-not $jsusage) { return }
+                        $ji = if ($null -ne $jsusage.input_tokens) { [int]$jsusage.input_tokens } else { 0 }
+                        $jo = if ($null -ne $jsusage.output_tokens) { [int]$jsusage.output_tokens } else { 0 }
+                        $jcw_local = if ($null -ne $jsusage.cache_creation_input_tokens) { [int]$jsusage.cache_creation_input_tokens } else { 0 }
+                        $jcr_local = if ($null -ne $jsusage.cache_read_input_tokens) { [int]$jsusage.cache_read_input_tokens } else { 0 }
+                        if ($ji -eq 0 -and $jo -eq 0 -and $jcw_local -eq 0 -and $jcr_local -eq 0) { return }
+                        $jssig = "$($jsdata.timestamp)|$ji|$jo"
+                        if ($jsseen.ContainsKey($jssig)) { return }
+                        $jsseen[$jssig] = $true
+                        $jsonlTotalInput += $ji; $jsonlTotalOutput += $jo
+                        $jsonlTotalCW += $jcw_local; $jsonlTotalCR += $jcr_local
+                    }
+                } catch { }
+            }
+            if ($jsonlTotalInput -gt 0 -or $jsonlTotalOutput -gt 0 -or $jsonlTotalCW -gt 0 -or $jsonlTotalCR -gt 0) {
+                $jsonlInput = $jsonlTotalInput; $jsonlOutput = $jsonlTotalOutput
+                $jsonlCW = $jsonlTotalCW; $jsonlCR = $jsonlTotalCR
+            }
+            $jsonlEverScanned = $true
+        }
+    } catch { }
+}
+
 # Save state (single project per file)
 try {
     # Ensure statusline directory exists
@@ -216,6 +284,16 @@ try {
         last_output            = $curOut
         last_cache_write       = $curCW
         last_cache_read        = $curCR
+        jsonl_input            = $jsonlInput
+        jsonl_output           = $jsonlOutput
+        jsonl_cache_write      = $jsonlCW
+        jsonl_cache_read       = $jsonlCR
+        jsonl_scan_count       = $jsonlScanCount
+        jsonl_ever_scanned     = $jsonlEverScanned
+        jsonl_baseline_input   = $jsonlBaselineInput
+        jsonl_baseline_output  = $jsonlBaselineOutput
+        jsonl_baseline_cache_write = $jsonlBaselineCW
+        jsonl_baseline_cache_read  = $jsonlBaselineCR
     } | ConvertTo-Json -Depth 5
     [System.IO.File]::WriteAllText($statePath, $newState, [System.Text.UTF8Encoding]::new($false))
 } catch {}
@@ -328,10 +406,26 @@ $callInStr  = Format-Num $curIn
 $callOutStr = Format-Num $curOut
 $contextSizeStr = Format-Num $contextSize
 
-if ($cumulativeCost -ge 1.0 -or $sessionCost -ge 1.0)       { $costColor = $bred }
-elseif ($cumulativeCost -ge 0.5 -or $sessionCost -ge 0.5)   { $costColor = $byellow }
-else                                                          { $costColor = $bgreen }
-$costStr = "${currencySymbol}$($sessionCost.ToString('F3'))/${currencySymbol}$($cumulativeCost.ToString('F3'))"
+# Compute JSONL session delta (total - baseline at session start)
+$jsonlSessionInput  = [Math]::Max(0, $jsonlInput  - $jsonlBaselineInput)
+$jsonlSessionOutput = [Math]::Max(0, $jsonlOutput - $jsonlBaselineOutput)
+$jsonlSessionCW     = [Math]::Max(0, $jsonlCW     - $jsonlBaselineCW)
+$jsonlSessionCR     = [Math]::Max(0, $jsonlCR     - $jsonlBaselineCR)
+
+$jsonlSessionCost = Calc-Cost $jsonlSessionInput $jsonlSessionOutput $jsonlSessionCW $jsonlSessionCR
+$jsonlTotalCost   = Calc-Cost $jsonlInput $jsonlOutput $jsonlCW $jsonlCR
+$subSessionCost   = [Math]::Max(0, $jsonlSessionCost - $sessionCost)
+
+if ($jsonlEverScanned) {
+    # 已扫描过，显示完整三值：主会话 / subagent / 项目总（含sub）
+    $costThreshold = $jsonlTotalCost
+    $costStr = "${currencySymbol}$($sessionCost.ToString('F3')) / ${currencySymbol}$($subSessionCost.ToString('F3')) / ${currencySymbol}$($jsonlTotalCost.ToString('F3'))"
+} else {
+    # 尚未扫描，用旧两值格式
+    $costThreshold = [Math]::Max($cumulativeCost, $sessionCost)
+    $costStr = "${currencySymbol}$($sessionCost.ToString('F3'))/${currencySymbol}$($cumulativeCost.ToString('F3'))"
+}
+$costColor = if ($costThreshold -ge 1.0) { $bred } elseif ($costThreshold -ge 0.5) { $byellow } else { $bgreen }
 
 # 7. Build field map and order
 

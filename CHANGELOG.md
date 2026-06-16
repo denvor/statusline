@@ -1,5 +1,21 @@
 # Changelog
 
+## [2026-06-16]
+
+### Added
+- **Subagent cost tracking** — scans `~/.claude/projects/<project>/*.jsonl` for subagent API call usage, deduplicates by `(timestamp, input, output)` signature, and isolates per-session subagent cost via baseline snapshot at session start
+- **JSONL scan interval** — configurable via `[jsonl]` section in `statusline.ini` (`sync_interval = N`, default 10, 0 to disable)
+- **Three-value cost display** — `¥main / ¥subagent / ¥total` replaces the old two-value format when JSONL data is available; gracefully falls back to `¥session/¥cumulative` before the first scan completes
+- **`jsonl_ever_scanned` state flag** — tracks whether a JSONL scan has ever completed, enabling accurate distinction between "not yet scanned" and "zero subagent cost"
+
+### Fixed
+- **statusline.ps1** — Inner guard (`$ji -eq 0 -and $jo -eq 0`) now also checks cache tokens (`$jcw_local`, `$jcr_local`) before skipping a JSONL entry, preventing cache-only assistant messages from being discarded
+- **statusline.ps1** — Outer guard now checks `$jsonlTotalCW` and `$jsonlTotalCR` in addition to input/output totals, ensuring pure-cache scan results are saved to state
+- **statusline.sh** — Removed basename fallback in `sync_jsonl_cost()` that could cause project directory name collision between projects with the same basename (now only uses the fully-sanitized path)
+- **statusline.sh** — Added numeric validation for `sync_interval` INI value: non-digit values fall back to default 10, preventing `integer expression expected` bash errors
+- **statusline.ps1 + statusline.sh** — Cost color threshold logic deduplicated: single color assignment after the if/else branch instead of duplicated logic in both branches
+- **statusline.sh** — Three separate awk calls for `jsonl_session_cost`, `jsonl_total_cost`, and `sub_session_cost` merged into one awk call
+
 ## [2026-06-15]
 
 ### Changed

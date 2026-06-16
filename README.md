@@ -11,7 +11,7 @@ A PowerShell / bash custom status line for [Claude Code](https://code.claude.com
 ```
 ┌─ Status bar (bottom of Claude Code) ─────────────────────────────────────────────┐
 │ [PR] hello │ DeepSeek V4 Pro T H │ ========------------ 42% │ ctx: 18.5K/3.2K     │
-│ /200K │ call: i5K o1.2K @github │ time 5m │ ¥0.004/¥0.009                       │
+│ /200K │ call: i5K o1.2K @github │ time 5m │ ¥0.004 / ¥0.001 / ¥0.009                       │
 └──────────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -29,7 +29,7 @@ Each segment is color-coded for quick scanning:
 | Per-call tokens | `call: i5K o1.2K` | Bright white |
 | Git info | `git:main @github` | Cyan |
 | Session time | `time 5m` | Blue |
-| Session / project cost | `¥0.004/¥0.009` | Green → Yellow → Red with thresholds |
+| Session / subagent / project cost | `¥0.004/¥0.009` | Green → Yellow → Red with thresholds |
 
 ## Features
 
@@ -42,6 +42,7 @@ Each segment is color-coded for quick scanning:
 - **Multi-currency** — `¥` (CNY) or `$` (USD)
 - **Per-project cost tracking** — costs tracked independently per project directory, stored in separate `statusline_state_<project>.json` files
 - **Session + project cost split** — displays `session_cost/project_cost`; session resets on new Claude Code session, project cost persists
+- **Subagent cost tracking** — scans `~/.claude/projects/` JSONL files to capture subagent (code-review, etc.) token usage, displayed as `¥main / ¥subagent / ¥total`
 - **Debounce-safe** — detects and skips duplicate updates from Claude Code's 300ms debounce
 - **Git info** — branch name + remote host (e.g., `@github`)
 - **Worktree aware** — shows `[WT]` prefix inside git worktrees
@@ -133,6 +134,22 @@ Pricing is configured per-model via section headers. The section name must match
 
 Each `[model_id]` section can independently configure the 5 keys above. If the INI file is missing, hardcoded defaults are used.
 
+### `[jsonl]` section
+
+Controls how often subagent cost data is scanned from JSONL files:
+
+```ini
+[jsonl]
+# Scan every N statusline triggers (default: 10, set to 0 to disable)
+sync_interval = 10
+```
+
+| Key | Description | Default |
+|-----|-------------|---------|
+| `sync_interval` | JSONL scan period (number of triggers between scans). Larger = less I/O, smaller = more responsive subagent updates | `10` |
+
+> **Note:** JSONL scan reads all `*.jsonl` files in `~/.claude/projects/<project>/` recursively, parses `assistant`-type messages with `usage` data, and deduplicates by `(timestamp, input, output)`. At session start, a baseline snapshot is taken so only tokens consumed during the current session are attributed.
+
 ### `[display]` section
 
 Controls which fields appear in the status line and in what order:
@@ -176,7 +193,7 @@ Fields not listed in `order` are hidden. The `\|` separator is inserted automati
 | ⑦ | Per-call tokens | `call: i5K o1.2K` | Bright white |
 | ⑧ | Git | `git:main @github` | Cyan |
 | ⑨ | Session time | `time 5m` | Blue |
-| ⑩ | Session / project cost | `¥0.004/¥0.009` | Green→Yellow→Red |
+| ⑩ | Session / subagent / project cost | `¥0.004 / ¥0.001 / ¥0.009` | Green→Yellow→Red |
 
 > **Icons:** `T` = extended thinking, `H`/`X`/`M`/`L`/`!` = effort level (high/xhigh/medium/low/max), `[WT]` = git worktree. Empty fields (e.g., no thinking, no git branch) are automatically hidden. Field order is controlled by `order` in `[display]`.
 
@@ -187,10 +204,11 @@ Claude Code pipes a JSON snapshot to the script via stdin after each assistant m
 1. Parses the JSON (`ConvertFrom-Json`)
 2. Extracts per-call token counts from `context_window.current_usage`
 3. Reads/writes cumulative totals in `statusline_state_<project>.json` (one file per project, with per-session and cumulative tracking)
-4. Loads pricing from `statusline.ini` (falls back to defaults if missing)
-5. Computes cost: `sum(tokens / 1,000,000 × price_per_million)` across all four token types
-6. Skips accumulation when `current_usage` is unchanged (debounce guard)
-7. Outputs a single ANSI-colored line to stdout showing session cost / project cumulative cost
+4. **Periodically scans `~/.claude/projects/<project>/*.jsonl`** for subagent API token usage, deduplicates by `(timestamp, input, output)`, and isolates per-session subagent cost via baseline snapshot at session start
+5. Loads pricing from `statusline.ini` (falls back to defaults if missing)
+6. Computes cost: `sum(tokens / 1,000,000 × price_per_million)` across all four token types
+7. Skips accumulation when `current_usage` is unchanged (debounce guard)
+8. Outputs a single ANSI-colored line to stdout showing session cost / subagent cost / project total cost
 
 The state file tracks each project independently. New Claude Code sessions reset the session cost to zero while preserving the project cumulative cost.
 
@@ -201,7 +219,7 @@ The state file tracks each project independently. New Claude Code sessions reset
 | `statusline.ps1` | Windows script — reads stdin, accumulates tokens, outputs status line |
 | `statusline.sh` | Mac / Linux script — same functionality, uses jq for JSON parsing |
 | `statusline.ini` | User-editable pricing configuration |
-| `statusline_state_<project>.json` | Auto-generated — one per project, persists token counts (session + cumulative) |
+| `statusline_state_<project>.json` | Auto-generated — one per project, persists token counts (session + cumulative + JSONL scan results + baseline) |
 | `install.ps1` / `install.sh` | Install scripts — copies files to `~/.claude/statusline/` and migrates old state files |
 
 ## FAQ
@@ -223,10 +241,11 @@ Unit prices are read from `statusline.ini`, matched by the current model's `[sec
 
 ### Are tokens accumulated from the beginning of the project or just this session?
 
-**Both are tracked.** The cost display shows `session_cost/project_cost`:
+**Both are tracked.** The cost display shows `session_cost / subagent_cost / project_cost`:
 
-- **Session cost** (left of `/`): Resets to zero each time Claude Code starts a new session. Tracks only the current conversation.
-- **Project cost** (right of `/`): Cumulative total for the project directory, persisting across sessions.
+- **Session cost** (leftmost): Resets to zero each time Claude Code starts a new session. Tracks only the current conversation.
+- **Subagent cost** (middle): Subagent token costs (code-review agents, etc.) detected via JSONL file scanning during the current session.
+- **Project cost** (rightmost): Cumulative total for the project directory, persisting across sessions. Includes both main session and subagent costs.
 
 Token counts are tracked **per project directory** — different projects have independent counters, stored in separate `statusline_state_<project>.json` files.
 

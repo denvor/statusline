@@ -1,5 +1,21 @@
 # 更新日志
 
+## [2026-06-16]
+
+### Added
+- **Subagent 费用追踪** — 扫描 `~/.claude/projects/<项目>/*.jsonl` 获取子 agent API 调用的 token 用量，通过 `(时间戳, input, output)` 签名去重，并通过会话启动时的基线快照隔离本次会话的 subagent 费用
+- **JSONL 扫描间隔** — 可在 `statusline.ini` 的 `[jsonl]` 段中配置（`sync_interval = N`，默认 10，设为 0 可禁用）
+- **三值费用显示** — 当 JSONL 数据可用时，`¥主会话 / ¥subagent / ¥总` 替代旧的两值格式；首次扫描完成前优雅回退到 `¥会话/¥累计`
+- **`jsonl_ever_scanned` 状态标记** — 记录是否已完成至少一次 JSONL 扫描，精确区分"尚未扫描"和"子代理费用为零"
+
+### Fixed
+- **statusline.ps1** — 内层跳过守卫（`$ji -eq 0 -and $jo -eq 0`）新增检查 cache token（`$jcw_local`、`$jcr_local`），防止纯 cache 的 assistant 消息被丢弃
+- **statusline.ps1** — 外层保存守卫新增 `$jsonlTotalCW` 和 `$jsonlTotalCR` 检查，确保纯 cache 扫描结果被保存到状态文件
+- **statusline.sh** — 移除 `sync_jsonl_cost()` 中的 basename 回退逻辑，消除同名不同路径项目的目录碰撞风险（现仅使用完整路径脱敏后的目录名）
+- **statusline.sh** — 对 `sync_interval` INI 值添加数字校验：非数字值回退默认值 10，防止 `integer expression expected` bash 错误
+- **statusline.ps1 + statusline.sh** — 费用颜色阈值逻辑去重：if/else 分支后统一进行颜色赋值，而非在两个分支中重复
+- **statusline.sh** — 将 `jsonl_session_cost`、`jsonl_total_cost`、`sub_session_cost` 三次独立 awk 调用合并为一次
+
 ## [2026-06-15]
 
 ### Changed
