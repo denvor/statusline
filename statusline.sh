@@ -262,7 +262,15 @@ fi
 
 # ses_dur = duration_ms - baseline (0 at session start, grows during session)
 ses_dur=$((duration_ms - ses_dur_baseline))
-[ "$ses_dur" -lt 0 ] && ses_dur=0
+if [ "$ses_dur" -lt 0 ]; then
+    ses_dur=0
+elif [ "$ses_dur_baseline" -eq 0 ] && [ "$ses_dur" -gt 0 ] && [ "$is_new_project" -eq 0 ]; then
+    # Migration: old state file had no baseline field (null → 0).
+    # ses_dur loaded from state was the raw duration_ms from before the fix.
+    # Reset baseline to current duration_ms so ses_dur starts fresh.
+    ses_dur_baseline=$duration_ms
+    ses_dur=0
+fi
 
 # New session: snapshot JSONL total as baseline for per-session subagent tracking
 if [ "$is_new_session" -eq 1 ] && [ "$is_new_project" -eq 0 ]; then
