@@ -11,7 +11,7 @@ A PowerShell / bash custom status line for [Claude Code](https://code.claude.com
 ```
 ┌─ Status bar (bottom of Claude Code) ─────────────────────────────────────────────┐
 │ [PR] hello │ DeepSeek V4 Pro T H │ ========------------ 42% │ ctx: 18.5K/3.2K     │
-│ /200K │ call: i5K o1.2K @github │ time 5m │ ¥0.004 / ¥0.001 / ¥0.009                       │
+│ /200K │ call: i5K o1.2K @github │ time 5m / 19h39m │ ¥0.004 / ¥0.001 / ¥0.009                       │
 └──────────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -28,7 +28,7 @@ Each segment is color-coded for quick scanning:
 | Context occupancy + limit | `ctx: 18.5K/3.2K /200K` | Bright white + bar color |
 | Per-call tokens | `call: i5K o1.2K` | Bright white |
 | Git info | `git:main @github` | Cyan |
-| Session time | `time 5m` | Blue |
+| Session / cumulative time | `time 5m / 19h39m` | Blue |
 | Session / subagent / project cost | `¥0.004/¥0.009` | Green → Yellow → Red with thresholds |
 
 ## Features
@@ -46,7 +46,7 @@ Each segment is color-coded for quick scanning:
 - **Debounce-safe** — detects and skips duplicate updates from Claude Code's 300ms debounce
 - **Git info** — branch name + remote host (e.g., `@github`)
 - **Worktree aware** — shows `[WT]` prefix inside git worktrees
-- **Session duration** — displays elapsed time (e.g., `time 5m`), from `cost.total_duration_ms`
+- **Session / cumulative time** — displays `time Xm / YhZm` (session duration / project cumulative duration), from `cost.total_duration_ms`
 - **Zero dependencies (Windows)** — pure PowerShell, no `jq` or Node.js required. Mac/Linux requires bash 3.2+ and `jq`.
 
 ## Requirements
@@ -178,7 +178,7 @@ Fields not listed in `order` are hidden. The `\|` separator is inserted automati
 ## Output Layout
 
 ```
-[icon] project │ Model │ T │ H │ ========------ 42% │ ctx: 18.5K/3.2K /200K │ call: i5K o1.2K │ git:main @github │ time 5m │ ¥0.004/¥0.009
+[icon] project │ Model │ T │ H │ ========------ 42% │ ctx: 18.5K/3.2K /200K │ call: i5K o1.2K │ git:main @github │ time 5m / 19h39m │ ¥0.004/¥0.009
   ①       ②    ③   ④             ⑤                         ⑥                  ⑦                  ⑧             ⑨            ⑩
 ```
 
@@ -192,7 +192,7 @@ Fields not listed in `order` are hidden. The `\|` separator is inserted automati
 | ⑥ | Context occupancy + limit | `ctx: 18.5K/3.2K /200K` | Bright white + bar color |
 | ⑦ | Per-call tokens | `call: i5K o1.2K` | Bright white |
 | ⑧ | Git | `git:main @github` | Cyan |
-| ⑨ | Session time | `time 5m` | Blue |
+| ⑨ | Session / cumulative time | `time 5m / 19h39m` | Blue |
 | ⑩ | Session / subagent / project cost | `¥0.004 / ¥0.001 / ¥0.009` | Green→Yellow→Red |
 
 > **Icons:** `T` = extended thinking, `H`/`X`/`M`/`L`/`!` = effort level (high/xhigh/medium/low/max), `[WT]` = git worktree. Empty fields (e.g., no thinking, no git branch) are automatically hidden. Field order is controlled by `order` in `[display]`.
@@ -208,9 +208,9 @@ Claude Code pipes a JSON snapshot to the script via stdin after each assistant m
 5. Loads pricing from `statusline.ini` (falls back to defaults if missing)
 6. Computes cost: `sum(tokens / 1,000,000 × price_per_million)` across all four token types
 7. Skips accumulation when `current_usage` is unchanged (debounce guard)
-8. Outputs a single ANSI-colored line to stdout showing session cost / subagent cost / project total cost
+8. Outputs a single ANSI-colored line to stdout showing session cost / subagent cost / project total cost, plus session duration / cumulative duration
 
-The state file tracks each project independently. New Claude Code sessions reset the session cost to zero while preserving the project cumulative cost.
+The state file tracks each project independently. New Claude Code sessions reset the session cost to zero while preserving the project cumulative cost. Cumulative duration also persists across sessions.
 
 ## Files
 
@@ -262,6 +262,28 @@ claude --continue --fork-session
 ```
 
 This creates a new `session_id` while loading the last conversation, so the script resets session cost to zero while keeping the project cumulative cost.
+
+### How to reset cumulative time / cumulative cost?
+
+To reset the project cumulative time (right side of `time XhYm`) and cumulative cost:
+
+1. **Delete the state file** — fully resets all cumulative data (tokens, cost, duration):
+   ```bash
+   rm ~/.claude/statusline/statusline_state_<project>.json
+   ```
+   The script auto-recreates it on the next message, starting from zero.
+
+2. **Partial reset** — zero out only cumulative fields while preserving the current session:
+   ```bash
+   # Use jq to reset cumulative values to current session values
+   cat ~/.claude/statusline/statusline_state_<project>.json | jq '
+     .cumulative_input = .session_input |
+     .cumulative_output = .session_output |
+     .cumulative_duration_ms = .session_duration_ms
+   ' > /tmp/reset.json && mv /tmp/reset.json ~/.claude/statusline/statusline_state_<project>.json
+   ```
+
+> The `<project>` placeholder is the sanitized working directory path (e.g., `/home/user/work/my-project` → `_home_user_work_my-project`).
 
 ### What happens when I start a new session?
 

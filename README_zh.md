@@ -11,7 +11,7 @@
 ```
 ┌─ 状态栏（显示在 Claude Code 底部）─────────────────────────────────────────────────┐
 │ [PR] hello │ DeepSeek V4 Pro T H │ ========------------ 42% │ ctx: 18.5K/3.2K     │
-│ /200K │ call: i5K o1.2K @github │ time 5m │ ¥0.004 / ¥0.001 / ¥0.009                       │
+│ /200K │ call: i5K o1.2K @github │ time 5m / 19h39m │ ¥0.004 / ¥0.001 / ¥0.009                       │
 └──────────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -28,7 +28,7 @@
 | 上下文占用 + 上限 | `ctx: 18.5K/3.2K /200K` | 亮白色 + 进度条颜色 |
 | 单次调用 | `call: i5K o1.2K` | 亮白色 |
 | Git 信息 | `git:main @github` | 青色 |
-| 会话时长 | `time 5m` | 蓝色 |
+| 会话 / 累计耗时 | `time 5m / 19h39m` | 蓝色 |
 | 会话 / subagent / 项目费用 | `¥0.004 / ¥0.001 / ¥0.009` | 绿 → 黄 → 红（随金额变化） |
 
 ## 功能特性
@@ -46,7 +46,7 @@
 - **防抖去重** — 检测并跳过 Claude Code 300ms 防抖导致的重复调用
 - **Git 信息** — 分支名 + 远程仓库（如 `@github`）
 - **Worktree 感知** — git worktree 中显示 `[WT]` 前缀
-- **会话时长** — 显示本次会话已用时间（如 `time 5m`），数据来自 `cost.total_duration_ms`
+- **会话 / 累计耗时** — 显示 `time Xm / YhZm`（当前会话耗时 / 项目累计耗时），数据来自 `cost.total_duration_ms`
 - **零依赖（Windows）** — 纯 PowerShell，不需要 `jq` 或 Node.js。Mac/Linux 需要 bash 3.2+ 和 `jq`
 
 ## 环境要求
@@ -178,7 +178,7 @@ order = project, model, thinking, effort, bar, ctx, call, git, time, cost
 ## 输出布局
 
 ```
-[图标] 项目名 │ 模型 │ T │ H │ ========------ 42% │ ctx: 18.5K/3.2K /200K │ call: i5K o1.2K │ git:main @github │ time 5m │ ¥0.004 / ¥0.001 / ¥0.009
+[图标] 项目名 │ 模型 │ T │ H │ ========------ 42% │ ctx: 18.5K/3.2K /200K │ call: i5K o1.2K │ git:main @github │ time 5m / 19h39m │ ¥0.004 / ¥0.001 / ¥0.009
   ①      ②    ③   ④             ⑤                         ⑥                  ⑦                  ⑧             ⑨            ⑩
 ```
 
@@ -192,7 +192,7 @@ order = project, model, thinking, effort, bar, ctx, call, git, time, cost
 | ⑥ | 上下文占用 + 上限 | `ctx: 18.5K/3.2K /200K` | 亮白色 + 进度条颜色 |
 | ⑦ | 单次调用 | `call: i5K o1.2K` | 亮白色 |
 | ⑧ | Git | `git:main @github` | 青色 |
-| ⑨ | 会话时长 | `time 5m` | 蓝色 |
+| ⑨ | 会话 / 累计耗时 | `time 5m / 19h39m` | 蓝色 |
 | ⑩ | 会话 / subagent / 项目费用 | `¥0.004 / ¥0.001 / ¥0.009` | 绿→黄→红 |
 
 > **图标说明：** `T` = 扩展思考已开启，`H`/`X`/`M`/`L`/`!` = 推理强度（高/极高/中/低/最大），`[WT]` = 处于 git worktree 中。空字段（如无思考模式、无 git 分支）自动隐藏。字段顺序由 `[display]` 段的 `order` 控制。
@@ -208,9 +208,9 @@ Claude Code 在每次助手消息后通过 stdin 向脚本传入 JSON 快照。�
 5. 从 `statusline.ini` 加载定价（缺失则用默认值）
 6. 计算费用：`Σ(Token / 1,000,000 × 单价)`，覆盖四种 Token 类型
 7. 当 `current_usage` 与上次相同时跳过累加（防止防抖重复计入）
-8. 输出一行 ANSI 彩色文本到 stdout，显示主会话费用 / subagent 费用 / 项目总费用
+8. 输出一行 ANSI 彩色文本到 stdout，显示主会话费用 / subagent 费用 / 项目总费用，以及会话耗时 / 项目累计耗时
 
-状态文件按项目目录独立追踪。新会话启动时会话费用清零，项目累计费用保留。
+状态文件按项目目录独立追踪。新会话启动时会话费用清零，项目累计费用保留。累计耗时同样跨会话持续累加。
 
 ## 文件说明
 
@@ -262,6 +262,28 @@ claude --continue --fork-session
 ```
 
 这会创建一个新的 `session_id` 但加载上次对话，脚本会将会话费用清零，同时保留项目累计费用。
+
+### 如何重置累计时间 / 累计费用？
+
+如果想清空项目的累计时间（`time XhYm` 的右侧值）和累计费用，有两种方式：
+
+1. **删除状态文件** — 最彻底，所有累计数据（token、费用、时长）全部清零：
+   ```bash
+   rm ~/.claude/statusline/statusline_state_<项目>.json
+   ```
+   下次发送消息后脚本会自动重新创建，从零开始。
+
+2. **部分重置** — 只清零累计字段，保留当前会话数据：
+   ```bash
+   # 用 jq 将累计值设为当前会话值
+   cat ~/.claude/statusline/statusline_state_<项目>.json | jq '
+     .cumulative_input = .session_input |
+     .cumulative_output = .session_output |
+     .cumulative_duration_ms = .session_duration_ms
+   ' > /tmp/reset.json && mv /tmp/reset.json ~/.claude/statusline/statusline_state_<项目>.json
+   ```
+
+> 项目名称 `<>` 中的部分对应工作目录路径脱敏后的形式（如 `/home/user/work/my-project` 对应 `_home_user_work_my-project`）。
 
 ### 开启新会话时如何计算？
 
