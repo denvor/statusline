@@ -62,6 +62,7 @@ if [ -n "$repo_host_raw" ]; then
 fi
 
 # Git branch
+git_branch=""
 if [ -n "$project_dir" ] && command -v git &>/dev/null; then
     branch=$(git -C "$project_dir" branch --show-current 2>/dev/null) || true
     if [ -n "$branch" ]; then
