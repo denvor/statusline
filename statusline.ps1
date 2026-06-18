@@ -174,6 +174,7 @@ $jsonlBaselineCR     = if ($projState.jsonl_baseline_cache_read)  { [int]$projSt
 $jsonlEverScanned    = if ($projState.jsonl_ever_scanned) { $true } else { $false }
 
 $sesDur = if ($projState.session_duration_ms) { [int64]$projState.session_duration_ms } else { 0 }
+$sesDurBaseline = if ($projState.session_duration_baseline) { [int64]$projState.session_duration_baseline } else { 0 }
 $cumDur = if ($projState.cumulative_duration_ms) { [int64]$projState.cumulative_duration_ms } else { 0 }
 
 $isNewProject = (-not $projState)
@@ -186,7 +187,7 @@ if ($isNewProject) {
     # Brand new project — start from scratch
     $cumIn = $curIn; $cumOut = $curOut; $cumCW = $curCW; $cumCR = $curCR
     $sesIn = $curIn; $sesOut = $curOut; $sesCW = $curCW; $sesCR = $curCR
-    $sesDur = $durationMs; $cumDur = $durationMs
+    $sesDurBaseline = $durationMs; $cumDur = $durationMs
 } elseif ($isNewSession) {
     # Same project, new session: session reset, cumulative preserved
     $cumIn  = [int]$projState.cumulative_input  + $curIn
@@ -194,8 +195,8 @@ if ($isNewProject) {
     $cumCW  = [int]$projState.cumulative_cache_write + $curCW
     $cumCR  = [int]$projState.cumulative_cache_read  + $curCR
     $sesIn = $curIn; $sesOut = $curOut; $sesCW = $curCW; $sesCR = $curCR
-    $cumDur = [int64]$projState.cumulative_duration_ms + $durationMs
-    $sesDur = $durationMs
+    # New session: snapshot duration_ms as baseline, ses_dur starts from 0
+    $sesDurBaseline = $durationMs
 } else {
     # Same session — check for duplicate (debounce)
     $lastIn  = if ($projState.last_input)  { [int]$projState.last_input }  else { 0 }
@@ -221,12 +222,16 @@ if ($isNewProject) {
         $cumIn  += $curIn;  $cumOut += $curOut;  $cumCW  += $curCW;  $cumCR  += $curCR
         $sesIn  += $curIn;  $sesOut += $curOut;  $sesCW  += $curCW;  $sesCR  += $curCR
         # durationMs is session-cumulative: add only the delta since last recording
-        $durDelta = $durationMs - $sesDur
+        $oldRawDur = $sesDurBaseline + $sesDur
+        $durDelta = $durationMs - $oldRawDur
         if ($durDelta -lt 0) { $durDelta = $durationMs }
-        $sesDur = $durationMs
         $cumDur += $durDelta
     }
 }
+
+# ses_dur = duration_ms - baseline (0 at session start, grows during session)
+$sesDur = $durationMs - $sesDurBaseline
+if ($sesDur -lt 0) { $sesDur = 0 }
 
 # New session: snapshot JSONL total as baseline for per-session subagent tracking
 if ($isNewSession -and -not $isNewProject) {
@@ -309,6 +314,7 @@ try {
         jsonl_baseline_cache_write = $jsonlBaselineCW
         jsonl_baseline_cache_read  = $jsonlBaselineCR
         session_duration_ms        = $sesDur
+        session_duration_baseline  = $sesDurBaseline
         cumulative_duration_ms     = $cumDur
     } | ConvertTo-Json -Depth 5
     [System.IO.File]::WriteAllText($statePath, $newState, [System.Text.UTF8Encoding]::new($false))

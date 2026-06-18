@@ -170,6 +170,7 @@ if [ -z "$proj_state" ]; then
     jsonl_input=0; jsonl_output=0; jsonl_cw=0; jsonl_cr=0; jsonl_scan_count=0
     jsonl_baseline_input=0; jsonl_baseline_output=0; jsonl_baseline_cw=0; jsonl_baseline_cr=0
     jsonl_ever_scanned=0
+    ses_dur_baseline=0
 else
     is_new_project=0
     # Load cached JSONL scan results from state
@@ -185,6 +186,7 @@ else
     jsonl_ever_scanned=$(echo "$proj_state" | jq -r '.jsonl_ever_scanned // 0')
     ses_dur=$(echo "$proj_state" | jq -r '.session_duration_ms // 0')
     cum_dur=$(echo "$proj_state" | jq -r '.cumulative_duration_ms // 0')
+    ses_dur_baseline=$(echo "$proj_state" | jq -r '.session_duration_baseline // 0')
     proj_session=$(echo "$proj_state" | jq -r '.session_id // ""')
     if [ "$session_id" != "unknown" ] && [ "$proj_session" != "$session_id" ]; then
         is_new_session=1
@@ -196,7 +198,7 @@ fi
 if [ "$is_new_project" -eq 1 ]; then
     cum_in=$cur_in; cum_out=$cur_out; cum_cw=$cur_cw; cum_cr=$cur_cr
     ses_in=$cur_in; ses_out=$cur_out; ses_cw=$cur_cw; ses_cr=$cur_cr
-    ses_dur=$duration_ms; cum_dur=$duration_ms
+    ses_dur_baseline=$duration_ms; cum_dur=$duration_ms
 elif [ "$is_new_session" -eq 1 ]; then
     old_cum_in=$(echo "$proj_state" | jq -r '.cumulative_input // 0')
     old_cum_out=$(echo "$proj_state" | jq -r '.cumulative_output // 0')
@@ -207,8 +209,8 @@ elif [ "$is_new_session" -eq 1 ]; then
     cum_cw=$((old_cum_cw + cur_cw))
     cum_cr=$((old_cum_cr + cur_cr))
     ses_in=$cur_in; ses_out=$cur_out; ses_cw=$cur_cw; ses_cr=$cur_cr
-    # duration_ms is session-cumulative; add full session to project total
-    cum_dur=$((cum_dur + duration_ms)); ses_dur=$duration_ms
+    # New session: snapshot duration_ms as baseline, ses_dur starts from 0
+    ses_dur_baseline=$duration_ms
 else
     last_in=$(echo "$proj_state" | jq -r '.last_input // 0')
     last_out=$(echo "$proj_state" | jq -r '.last_output // 0')
@@ -244,12 +246,16 @@ else
         ses_cw=$((ses_cw + cur_cw))
         ses_cr=$((ses_cr + cur_cr))
         # duration_ms is session-cumulative: add only the delta since last recording
-        dur_delta=$((duration_ms - old_ses_dur))
+        old_raw_dur=$((ses_dur_baseline + old_ses_dur))
+        dur_delta=$((duration_ms - old_raw_dur))
         [ "$dur_delta" -lt 0 ] && dur_delta=$duration_ms
-        ses_dur=$duration_ms
         cum_dur=$((cum_dur + dur_delta))
     fi
 fi
+
+# ses_dur = duration_ms - baseline (0 at session start, grows during session)
+ses_dur=$((duration_ms - ses_dur_baseline))
+[ "$ses_dur" -lt 0 ] && ses_dur=0
 
 # New session: snapshot JSONL total as baseline for per-session subagent tracking
 if [ "$is_new_session" -eq 1 ] && [ "$is_new_project" -eq 0 ]; then
@@ -321,6 +327,7 @@ new_state=$(jq -n \
     --argjson jbcw "$jsonl_baseline_cw" --argjson jbcr "$jsonl_baseline_cr" \
     --argjson jes "$jsonl_ever_scanned" \
     --argjson sd "$ses_dur" --argjson cd "$cum_dur" \
+    --argjson sdb "$ses_dur_baseline" \
     '{
         session_id: $sid,
         session_input: $si, session_output: $so, session_cache_write: $scw, session_cache_read: $scr,
@@ -331,7 +338,7 @@ new_state=$(jq -n \
         jsonl_baseline_input: $jbi, jsonl_baseline_output: $jbo,
         jsonl_baseline_cache_write: $jbcw, jsonl_baseline_cache_read: $jbcr,
         jsonl_ever_scanned: $jes,
-        session_duration_ms: $sd, cumulative_duration_ms: $cd
+        session_duration_ms: $sd, session_duration_baseline: $sdb, cumulative_duration_ms: $cd
     }')
 # Ensure statusline directory exists
 mkdir -p "$statusline_dir" 2>/dev/null || true
