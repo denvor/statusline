@@ -14,6 +14,12 @@
 - **statusline.sh** — Awk variable name `sub` collides with the built-in `sub()` string function. Renamed to `sub_cost` to prevent silent awk syntax failure, which caused `jsonl_total_cost` and `sub_session_cost` to always display as `0.000`.
 - **statusline.sh** — jq `// 0` alternative operator inside object value expressions with pipes (`{ key: [..] | add // 0 }`) requires parentheses on jq 1.7. Uncompilable expression silently failed under `2>/dev/null`, causing `sync_jsonl_cost` to never return real JSONL scan data.
 - **statusline.sh + statusline.ps1** — `jsonl_ever_scanned` now unconditionally set to `true` after the first scan attempt, even when no JSONL files exist yet. Previously required non-empty scan results to flip the flag, which meant projects with zero subagent activity would never activate the three-value cost format.
+- **statusline.sh + statusline.ps1** — Session time reset. `ses_dur` now computed as `total_duration_ms - baseline`, baseline snapshotted at session start so session time resets to 0 on new session / re-entry. Auto-migration for old state files without baseline field.
+- **statusline.sh + statusline.ps1** — Cumulative time inflation guard. `dur_delta > 5 min` treated as session restart, gap time not added to `cum_dur`.
+- **statusline.sh + statusline.ps1** — JSONL scan result protection. Switching API providers (no JSONL files from new provider) no longer zeroes cumulative `jsonl_input` etc. Update only when scan result >= saved values.
+- **statusline.sh** — Non-git repo crash. `git_branch` uninitialized caused `set -u` fatal error. Now initialized to empty string, git field auto-hidden for non-git projects.
+- **statusline.sh** — Empty project_key. When Claude Code JSON has `workspace.project_dir=""` (empty string, not null), jq's `// "unknown"` fallback fails because `""` is truthy. Caused shared `statusline_state_.json` and JSONL scan targeting `projects/` root. Added bash guard `[ -z "$project_key" ] && project_key="unknown"`.
+- **statusline.sh** — JSONL scan `total_cost` output as quoted string broke `--argjson` state save. Changed to `printf '{"total_cost":%.9f}'`.
 
 ## [2026-06-16]
 

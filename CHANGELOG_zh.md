@@ -14,6 +14,12 @@
 - **statusline.sh** — Awk 变量名 `sub` 与内置函数 `sub()` 冲突。重命名为 `sub_cost` 避免 awk 静默语法错误，该错误导致 `jsonl_total_cost` 和 `sub_session_cost` 始终显示为 `0.000`。
 - **statusline.sh** — jq 1.7 中，对象值表达式含有管道时 `// 0` 操作符需要加括号（`{ key: [..] | add // 0 }` 需改为 `{ key: ([..] | add // 0) }`）。无法编译的表达式在 `2>/dev/null` 下静默失败，`sync_jsonl_cost` 始终返回零值而非真实 JSONL 扫描数据。
 - **statusline.sh + statusline.ps1** — `jsonl_ever_scanned` 现在在首次扫描尝试后无条件设为 `true`，即使 JSONL 文件不存在。此前需要非空扫描结果才能翻转标记，导致无 subagent 活动的项目永远不会激活三值费用格式。
+- **statusline.sh + statusline.ps1** — 会话时间重置。新会话/重进时 `ses_dur` 从 `total_duration_ms - baseline` 计算，基线在会话启动时快照，使 session time 从 0 开始。旧状态文件无基线字段时自动推断。
+- **statusline.sh + statusline.ps1** — 累计时间防暴涨。`dur_delta > 5 分钟` 判定为会话重启，跳过空档时间不累加到 `cum_dur`。
+- **statusline.sh + statusline.ps1** — JSONL 扫描结果保护。切换 API 提供商时新 provider 无 JSONL 文件，扫描返回 0 不再覆盖已有累计值（仅增不降）。
+- **statusline.sh** — 非 git 仓库崩溃。`git_branch` 变量未初始化导致 `set -u` 报错退出。改为声明时赋空值，非 git 仓库自动隐藏 git 字段。
+- **statusline.sh** — 空 project_key。Claude Code JSON 中 `workspace.project_dir=""`（空字符串而非 null）时，jq 的 `// "unknown"` 不生效，导致状态文件路径为 `statusline_state_.json`，JSONL 扫描目标变为 `projects/` 根目录，累加全部项目的费用。添加 bash 守卫 `[ -z "$project_key" ] && project_key="unknown"`。
+- **statusline.sh** — JSONL 扫描函数 `total_cost` 输出字符串而非数字，`--argjson` 拒绝接受，状态保存失败。改为 `printf '{"total_cost":%.9f}'`。
 
 ## [2026-06-16]
 
