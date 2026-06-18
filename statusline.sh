@@ -52,6 +52,7 @@ IFS=$'\t' read -r project_name model_raw context_pct context_size \
     ]
     | @tsv')
 [ -z "$project_name" ] && project_name="..."
+[ -z "$project_key" ] && project_key="unknown"
 
 # Strip [1m] / [1M] context suffix added by third-party API providers
 model_clean=$(echo "$model_raw" | sed -E 's/\s*\[1[mi]\]$//')
