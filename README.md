@@ -42,7 +42,7 @@ Each segment is color-coded for quick scanning:
 - **Multi-currency** — `¥` (CNY) or `$` (USD)
 - **Per-project cost tracking** — costs tracked independently per project directory, stored in separate `statusline_state_<project>.json` files
 - **Session + project cost split** — displays `session_cost/project_cost`; session resets on new Claude Code session, project cost persists
-- **Subagent cost tracking** — scans `~/.claude/projects/` JSONL files to capture subagent (code-review, etc.) token usage, displayed as `¥main / ¥subagent / ¥total`
+- **Per-model cost tracking** — each message is costed at its own model's INI prices and accumulated. JSONL scan groups by `model` and prices each group independently. Switching API providers preserves historical costs.
 - **Debounce-safe** — detects and skips duplicate updates from Claude Code's 300ms debounce
 - **Git info** — branch name + remote host (e.g., `@github`)
 - **Worktree aware** — shows `[WT]` prefix inside git worktrees
@@ -203,10 +203,10 @@ Claude Code pipes a JSON snapshot to the script via stdin after each assistant m
 
 1. Parses the JSON (`ConvertFrom-Json`)
 2. Extracts per-call token counts from `context_window.current_usage`
-3. Reads/writes cumulative totals in `statusline_state_<project>.json` (one file per project, with per-session and cumulative tracking)
-4. **Periodically scans `~/.claude/projects/<project>/*.jsonl`** for subagent API token usage, deduplicates by `(timestamp, input, output)`, and isolates per-session subagent cost via baseline snapshot at session start
-5. Loads pricing from `statusline.ini` (falls back to defaults if missing)
-6. Computes cost: `sum(tokens / 1,000,000 × price_per_million)` across all four token types
+3. Reads/writes cumulative totals in `statusline_state_<project>.json` (one file per project, with per-session and cumulative tracking). Costs are stored as computed values — each message is priced at its own model's INI rates and accumulated, not recomputed from raw tokens.
+4. **Periodically scans `~/.claude/projects/<project>/*.jsonl`** for subagent API token usage, groups by the `model` field, prices each group at the model's INI rates, and accumulates into the project total. Session baseline isolates per-session subagent cost.
+5. Loads pricing from `statusline.ini` for the current model (falls back to defaults if missing)
+6. Reads stored costs directly — each message was priced at its own model's rates when accumulated, so no per-invocation recomputation is needed
 7. Skips accumulation when `current_usage` is unchanged (debounce guard)
 8. Outputs a single ANSI-colored line to stdout showing session cost / subagent cost / project total cost, plus session duration / cumulative duration
 
@@ -241,11 +241,11 @@ Unit prices are read from `statusline.ini`, matched by the current model's `[sec
 
 ### Are tokens accumulated from the beginning of the project or just this session?
 
-**Both are tracked.** The cost display shows `session_cost / subagent_cost / project_cost`:
+**Both are tracked, at per-model pricing.** The cost display shows `session_cost / subagent_cost / project_cost`:
 
-- **Session cost** (leftmost): Resets to zero each time Claude Code starts a new session. Tracks only the current conversation.
-- **Subagent cost** (middle): Only the subagent consumption during the current session (computed as delta from baseline at session start — JSONL delta minus session cost).
-- **Project cost** (rightmost): Cumulative total for the project directory, persisting across sessions. Includes both main session and subagent costs.
+- **Session cost** (leftmost): Resets to zero each time Claude Code starts a new session. Each message is costed at its own model's INI prices and accumulated — switching models mid-session doesn't distort historical costs.
+- **Subagent cost** (middle): Only the subagent consumption during the current session (computed as delta from baseline at session start). JSONL entries are grouped by `model` field and priced independently per model.
+- **Project cost** (rightmost): Cumulative total for the project directory, persisting across sessions. Includes both main session and subagent costs, all priced at per-model rates. Switching API providers does not reset cumulative costs.
 
 Token counts are tracked **per project directory** — different projects have independent counters, stored in separate `statusline_state_<project>.json` files.
 

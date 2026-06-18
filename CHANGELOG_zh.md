@@ -4,6 +4,7 @@
 
 ### Added
 - **statusline.sh + statusline.ps1** — 累计时间追踪。时间显示改为 `time Xm / YhZm`（当前会话耗时 / 项目累计耗时），取代之前的单条消息耗时。状态文件新增 `session_duration_ms` 和 `cumulative_duration_ms` 字段。耗时按会话累计值 `total_duration_ms` 的增量计算，避免重复累加。
+- **statusline.sh + statusline.ps1** — 按模型计费。费用不再从累计 token × 当前模型价格重算，而是每条消息用该消息的模型价格实时计算并累加到存储字段（`session_cost_stored` / `cumulative_cost_stored`）。JSONL 扫描按 `model` 分组，每组用对应模型定价算费。切换 API 不再导致历史费用归零。
 
 ### Changed
 - **README / FAQ** — 新增「如何重置累计时间 / 累计费用」说明，包含删除状态文件（全量重置）和部分重置累计字段两种方式。

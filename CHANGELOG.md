@@ -4,6 +4,7 @@
 
 ### Added
 - **statusline.sh + statusline.ps1** — Cumulative time tracking. Time display now shows `time Xm / YhZm` (session duration / project cumulative duration) instead of the previous single-message duration. New `session_duration_ms` and `cumulative_duration_ms` fields are persisted in per-project state files. Duration is computed as delta of the session-cumulative `total_duration_ms` to avoid double-counting on repeated invocations.
+- **statusline.sh + statusline.ps1** — Per-model cost tracking. Costs are no longer recomputed from accumulated tokens × current model prices. Instead, each message's cost is calculated at that message's model prices and accumulated into stored fields (`session_cost_stored` / `cumulative_cost_stored`). JSONL scan groups assistant messages by `model` and prices each group at the model's INI rates. Switching API providers no longer resets cumulative costs.
 
 ### Changed
 - **README / FAQ** — Added "How to reset cumulative time / cumulative cost" section, covering full reset (delete state file) and partial reset (zero cumulative fields via jq).

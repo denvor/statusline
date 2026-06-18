@@ -42,7 +42,7 @@
 - **多币种** — 支持 `¥`（CNY）或 `$`（USD）
 - **按项目独立追踪** — 不同项目目录的费用分别统计，存储在各自独立的 `statusline_state_<项目>.json` 文件中
 - **会话/项目费用分离** — 显示 `会话费用/项目累计费用`；新会话清零左侧，项目费用持续累加
-- **Subagent 费用追踪** — 扫描 `~/.claude/projects/` 目录下的 JSONL 文件，捕获 subagent（如 code-review）的 token 用量，显示为 `¥主会话 / ¥subagent / ¥总`
+- **按模型计费** — 每条消息使用该消息对应模型的 INI 定价计算费用并累加，切换模型不影响历史费用。JSONL subagent 扫描也按模型名称分组，每组用对应价格算费。
 - **防抖去重** — 检测并跳过 Claude Code 300ms 防抖导致的重复调用
 - **Git 信息** — 分支名 + 远程仓库（如 `@github`）
 - **Worktree 感知** — git worktree 中显示 `[WT]` 前缀
@@ -203,10 +203,10 @@ Claude Code 在每次助手消息后通过 stdin 向脚本传入 JSON 快照。�
 
 1. 解析 JSON（`ConvertFrom-Json`）
 2. 从 `context_window.current_usage` 提取单次调用的 Token 数
-3. 读写 `statusline_state_<项目>.json` 中的累计数据（每个项目一个独立文件，区分会话费用和累计费用）
-4. **定期扫描 `~/.claude/projects/<项目>/*.jsonl`** 获取 subagent API 调用的 token 用量，通过 `(时间戳, input, output)` 签名去重，并在会话启动时快照基线以隔离本次会话的 subagent 费用
-5. 从 `statusline.ini` 加载定价（缺失则用默认值）
-6. 计算费用：`Σ(Token / 1,000,000 × 单价)`，覆盖四种 Token 类型
+3. 读写 `statusline_state_<项目>.json` 中的累计数据（每个项目一个独立文件，区分会话费用和累计费用）。费用按模型存储：每条消息用其对应模型的 INI 定价实时计算并累加，而非事后用当前模型价格重算。
+4. **定期扫描 `~/.claude/projects/<项目>/*.jsonl`** 获取 subagent API 调用的 token 用量，按 `model` 字段分组，每组用对应模型的 INI 价格计算费用并累加到项目总费用。同时通过会话启动时的基线快照隔离本次会话的 subagent 费用。
+5. 从 `statusline.ini` 加载当前模型的定价（缺失则用默认值）
+6. 费用直接用已累加的存储值，不再从 token 重算
 7. 当 `current_usage` 与上次相同时跳过累加（防止防抖重复计入）
 8. 输出一行 ANSI 彩色文本到 stdout，显示主会话费用 / subagent 费用 / 项目总费用，以及会话耗时 / 项目累计耗时
 
@@ -241,11 +241,11 @@ Claude Code 在每次助手消息后通过 stdin 向脚本传入 JSON 快照。�
 
 ### Token 是从项目开始累计的，还是只算当前会话？
 
-**两者同时追踪。** 费用显示格式为 `主会话费用 / subagent 费用 / 项目总费用`：
+**两者同时追踪，且按模型计费。** 费用显示格式为 `主会话费用 / subagent 费用 / 项目总费用`：
 
-- **主会话费用**（左）：每次启动 Claude Code 新会话时清零，只统计本次对话的主会话消耗。
-- **Subagent 费用**（中）：仅统计当前会话期间产生的 subagent 消耗（通过 JSONL 扫描差值计算，会话启动时快照基线，期间 JSONL 新增量减去主会话消耗即为 subagent 部分）。
-- **项目总费用**（右）：该项目的累计总费用，跨会话持续累加，包含主会话和 subagent。
+- **主会话费用**（左）：每次启动 Claude Code 新会话时清零，只统计本次对话的主会话消耗。每条消息使用该消息对应模型的 INI 定价实时计算并累加，切换模型不影响历史费用。
+- **Subagent 费用**（中）：仅统计当前会话期间产生的 subagent 消耗（通过 JSONL 扫描差值计算，每条 JSONL 消息按 `model` 字段分组，使用对应模型定价算费）。
+- **项目总费用**（右）：该项目的累计总费用，跨会话持续累加，包含主会话和 subagent。同样按模型计费，切换 API 提供商不会归零。
 
 Token 按**项目目录**独立追踪 — 不同项目有各自的计数器，存储在各自的 `statusline_state_<项目>.json` 文件中。
 
