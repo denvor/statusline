@@ -225,7 +225,13 @@ if ($isNewProject) {
         # durationMs is session-cumulative: add only the delta since last recording
         $oldRawDur = $sesDurBaseline + $sesDur
         $durDelta = $durationMs - $oldRawDur
-        if ($durDelta -lt 0) { $durDelta = $durationMs }
+        if ($durDelta -lt 0) {
+            $durDelta = $durationMs
+        } elseif ($durDelta -gt 300000) {
+            # Gap > 5 min: likely session restart, reset baseline and skip gap
+            $sesDurBaseline = $durationMs
+            $durDelta = 0
+        }
         $cumDur += $durDelta
     }
 }

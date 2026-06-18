@@ -249,7 +249,13 @@ else
         # duration_ms is session-cumulative: add only the delta since last recording
         old_raw_dur=$((ses_dur_baseline + old_ses_dur))
         dur_delta=$((duration_ms - old_raw_dur))
-        [ "$dur_delta" -lt 0 ] && dur_delta=$duration_ms
+        if [ "$dur_delta" -lt 0 ]; then
+            dur_delta=$duration_ms
+        elif [ "$dur_delta" -gt 300000 ]; then
+            # Gap > 5 min: likely session restart, reset baseline and skip gap
+            ses_dur_baseline=$duration_ms
+            dur_delta=0
+        fi
         cum_dur=$((cum_dur + dur_delta))
     fi
 fi
