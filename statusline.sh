@@ -403,7 +403,7 @@ sync_jsonl_cost() {
         total=$(awk -v a="$total" -v b="$model_cost" 'BEGIN { printf "%.9f", a + b }')
     done
 
-    printf '{"total_cost":"%s"}' "$total"
+    printf '{"total_cost":%.9f}' "$total"
 }
 
 # ── Periodic JSONL scan for subagent cost (every ~10 calls) ──
