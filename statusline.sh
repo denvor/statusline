@@ -322,10 +322,16 @@ if [ "$jsonl_sync_interval" -gt 0 ] && [ "$jsonl_scan_count" -ge "$jsonl_sync_in
     jsonl_scan_count=0
     jsonl_result=$(sync_jsonl_cost "$project_key" 2>/dev/null) || true
     if [ -n "$jsonl_result" ]; then
-        jsonl_input=$(echo "$jsonl_result" | jq -r '.input // 0')
-        jsonl_output=$(echo "$jsonl_result" | jq -r '.output // 0')
-        jsonl_cw=$(echo "$jsonl_result" | jq -r '.cw // 0')
-        jsonl_cr=$(echo "$jsonl_result" | jq -r '.cr // 0')
+        jsonl_scan_input=$(echo "$jsonl_result" | jq -r '.input // 0')
+        jsonl_scan_output=$(echo "$jsonl_result" | jq -r '.output // 0')
+        jsonl_scan_cw=$(echo "$jsonl_result" | jq -r '.cw // 0')
+        jsonl_scan_cr=$(echo "$jsonl_result" | jq -r '.cr // 0')
+        # Only update if scan result >= current values (protect against
+        # API switch where new provider has no JSONL files yet)
+        [ "$jsonl_scan_input" -ge "$jsonl_input" ] && jsonl_input=$jsonl_scan_input
+        [ "$jsonl_scan_output" -ge "$jsonl_output" ] && jsonl_output=$jsonl_scan_output
+        [ "$jsonl_scan_cw" -ge "$jsonl_cw" ] && jsonl_cw=$jsonl_scan_cw
+        [ "$jsonl_scan_cr" -ge "$jsonl_cr" ] && jsonl_cr=$jsonl_scan_cr
         jsonl_ever_scanned=1
     fi
 fi
