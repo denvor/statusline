@@ -244,7 +244,7 @@ Unit prices are read from `statusline.ini`, matched by the current model's `[sec
 **Both are tracked.** The cost display shows `session_cost / subagent_cost / project_cost`:
 
 - **Session cost** (leftmost): Resets to zero each time Claude Code starts a new session. Tracks only the current conversation.
-- **Subagent cost** (middle): Subagent token costs (code-review agents, etc.) detected via JSONL file scanning during the current session.
+- **Subagent cost** (middle): Only the subagent consumption during the current session (computed as delta from baseline at session start — JSONL delta minus session cost).
 - **Project cost** (rightmost): Cumulative total for the project directory, persisting across sessions. Includes both main session and subagent costs.
 
 Token counts are tracked **per project directory** — different projects have independent counters, stored in separate `statusline_state_<project>.json` files.

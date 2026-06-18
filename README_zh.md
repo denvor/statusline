@@ -244,7 +244,7 @@ Claude Code 在每次助手消息后通过 stdin 向脚本传入 JSON 快照。�
 **两者同时追踪。** 费用显示格式为 `主会话费用 / subagent 费用 / 项目总费用`：
 
 - **主会话费用**（左）：每次启动 Claude Code 新会话时清零，只统计本次对话的主会话消耗。
-- **Subagent 费用**（中）：通过 JSONL 文件扫描检测到的子代理（如 code-review）token 消耗，按会话独立统计。
+- **Subagent 费用**（中）：仅统计当前会话期间产生的 subagent 消耗（通过 JSONL 扫描差值计算，会话启动时快照基线，期间 JSONL 新增量减去主会话消耗即为 subagent 部分）。
 - **项目总费用**（右）：该项目的累计总费用，跨会话持续累加，包含主会话和 subagent。
 
 Token 按**项目目录**独立追踪 — 不同项目有各自的计数器，存储在各自的 `statusline_state_<项目>.json` 文件中。
