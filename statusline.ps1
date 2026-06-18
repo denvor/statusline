@@ -220,7 +220,11 @@ if ($isNewProject) {
     if (-not $isDuplicate -and ($curIn + $curOut + $curCW + $curCR) -gt 0) {
         $cumIn  += $curIn;  $cumOut += $curOut;  $cumCW  += $curCW;  $cumCR  += $curCR
         $sesIn  += $curIn;  $sesOut += $curOut;  $sesCW  += $curCW;  $sesCR  += $curCR
-        $sesDur += $durationMs; $cumDur += $durationMs
+        # durationMs is session-cumulative: add only the delta since last recording
+        $durDelta = $durationMs - $sesDur
+        if ($durDelta -lt 0) { $durDelta = $durationMs }
+        $sesDur = $durationMs
+        $cumDur += $durDelta
     }
 }
 

@@ -207,6 +207,7 @@ elif [ "$is_new_session" -eq 1 ]; then
     cum_cw=$((old_cum_cw + cur_cw))
     cum_cr=$((old_cum_cr + cur_cr))
     ses_in=$cur_in; ses_out=$cur_out; ses_cw=$cur_cw; ses_cr=$cur_cr
+    # duration_ms is session-cumulative; add full session to project total
     cum_dur=$((cum_dur + duration_ms)); ses_dur=$duration_ms
 else
     last_in=$(echo "$proj_state" | jq -r '.last_input // 0')
@@ -229,7 +230,7 @@ else
     ses_out=$(echo "$proj_state" | jq -r '.session_output // 0')
     ses_cw=$(echo "$proj_state" | jq -r '.session_cache_write // 0')
     ses_cr=$(echo "$proj_state" | jq -r '.session_cache_read // 0')
-    ses_dur=$(echo "$proj_state" | jq -r '.session_duration_ms // 0')
+    old_ses_dur=$(echo "$proj_state" | jq -r '.session_duration_ms // 0')
     cum_dur=$(echo "$proj_state" | jq -r '.cumulative_duration_ms // 0')
 
     total_cur=$((cur_in + cur_out + cur_cw + cur_cr))
@@ -242,7 +243,11 @@ else
         ses_out=$((ses_out + cur_out))
         ses_cw=$((ses_cw + cur_cw))
         ses_cr=$((ses_cr + cur_cr))
-        ses_dur=$((ses_dur + duration_ms)); cum_dur=$((cum_dur + duration_ms))
+        # duration_ms is session-cumulative: add only the delta since last recording
+        dur_delta=$((duration_ms - old_ses_dur))
+        [ "$dur_delta" -lt 0 ] && dur_delta=$duration_ms
+        ses_dur=$duration_ms
+        cum_dur=$((cum_dur + dur_delta))
     fi
 fi
 
