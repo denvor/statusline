@@ -261,8 +261,8 @@ if ($jsonlSyncInterval -gt 0 -and $jsonlScanCount -ge $jsonlSyncInterval) {
                 $jsonlInput = $jsonlTotalInput; $jsonlOutput = $jsonlTotalOutput
                 $jsonlCW = $jsonlTotalCW; $jsonlCR = $jsonlTotalCR
             }
-            $jsonlEverScanned = $true
         }
+        $jsonlEverScanned = $true
     } catch { }
 }
 

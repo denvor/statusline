@@ -247,7 +247,43 @@ if [ "$is_new_session" -eq 1 ] && [ "$is_new_project" -eq 0 ]; then
     jsonl_baseline_cr=$jsonl_cr
 fi
 
-# ── Periodic JSONL scan for subagent cost ─────────────────────
+# ── JSONL subagent cost scan ─────────────────────────────────
+sync_jsonl_cost() {
+    local project_dir="$1"
+    local session_dir_name
+    session_dir_name=$(echo "$project_dir" | sed 's/[:\/\\]/-/g')
+    local target_dir="${HOME}/.claude/projects/${session_dir_name}"
+
+    if [ ! -d "$target_dir" ]; then
+        echo '{"input":0,"output":0,"cw":0,"cr":0}'
+        return 0
+    fi
+
+    local result
+    result=$(find "$target_dir" -name '*.jsonl' -type f -print0 2>/dev/null | \
+        xargs -0 cat 2>/dev/null | \
+        jq -s '
+            [ .[] | select(.type == "assistant")
+                  | select(.message.usage // empty | (.input_tokens // 0) + (.output_tokens // 0) > 0)
+                  | { timestamp, usage: .message.usage }
+            ] as $all
+            | $all
+            | unique_by("\(.timestamp)|\(.usage.input_tokens)|\(.usage.output_tokens)")
+            | { input: ([.[].usage.input_tokens] | add // 0),
+                output: ([.[].usage.output_tokens] | add // 0),
+                cw: ([.[].usage.cache_creation_input_tokens] | add // 0),
+                cr: ([.[].usage.cache_read_input_tokens] | add // 0) }
+        ' 2>/dev/null) || true
+
+    if [ -z "$result" ] || [ "$result" = "null" ]; then
+        echo '{"input":0,"output":0,"cw":0,"cr":0}'
+        return 0
+    fi
+
+    echo "$result"
+}
+
+# ── Periodic JSONL scan for subagent cost (every ~10 calls) ──
 jsonl_scan_count=$((jsonl_scan_count + 1))
 if [ "$jsonl_sync_interval" -gt 0 ] && [ "$jsonl_scan_count" -ge "$jsonl_sync_interval" ]; then
     jsonl_scan_count=0
@@ -324,40 +360,6 @@ format_duration() {
     echo "${hr}h${rem}m"
 }
 duration_str=$(format_duration "$duration_ms")
-
-# ── JSONL subagent cost scan ─────────────────────────────────
-sync_jsonl_cost() {
-    local project_dir="$1"
-    local session_dir_name
-    session_dir_name=$(echo "$project_dir" | sed 's/[:\/\\]/-/g')
-    local target_dir="${HOME}/.claude/projects/${session_dir_name}"
-
-    if [ ! -d "$target_dir" ]; then
-        return 1
-    fi
-
-    local result
-    result=$(find "$target_dir" -name '*.jsonl' -type f -print0 2>/dev/null | \
-        xargs -0 cat 2>/dev/null | \
-        jq -s '
-            [ .[] | select(.type == "assistant")
-                  | select(.message.usage // empty | (.input_tokens // 0) + (.output_tokens // 0) > 0)
-                  | { timestamp, usage: .message.usage }
-            ] as $all
-            | $all
-            | unique_by("\(.timestamp)|\(.usage.input_tokens)|\(.usage.output_tokens)")
-            | { input: [.[].usage.input_tokens] | add // 0,
-                output: [.[].usage.output_tokens] | add // 0,
-                cw: [.[].usage.cache_creation_input_tokens] | add // 0,
-                cr: [.[].usage.cache_read_input_tokens] | add // 0 }
-        ' 2>/dev/null) || true
-
-    if [ -z "$result" ] || [ "$result" = "null" ]; then
-        return 1
-    fi
-
-    echo "$result"
-}
 
 # ── 8. Number formatting (pure bash, nearest rounding) ──────────────
 format_num() {
@@ -453,8 +455,8 @@ read jsonl_session_cost jsonl_total_cost sub_session_cost <<< $(awk \
     'BEGIN {
         jsc = (si/1000000)*ip + (so/1000000)*op + (scw/1000000)*cwp + (scr/1000000)*crp;
         jtc = (ji/1000000)*ip + (jo/1000000)*op + (jcw/1000000)*cwp + (jcr/1000000)*crp;
-        sub = jsc - sc; if (sub < 0) sub = 0;
-        printf "%.6f %.6f %.6f", jsc, jtc, sub
+        sub_cost = jsc - sc; if (sub_cost < 0) sub_cost = 0;
+        printf "%.6f %.6f %.6f", jsc, jtc, sub_cost
     }')
 
 if [ "$jsonl_ever_scanned" = "1" ]; then

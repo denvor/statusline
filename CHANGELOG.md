@@ -1,5 +1,13 @@
 # Changelog
 
+## [2026-06-18]
+
+### Fixed
+- **statusline.sh** — `sync_jsonl_cost()` function definition moved before its call site. Bash executes scripts sequentially; the function was defined at line 329 but first called at line 254, so it was never found by the shell. This caused `jsonl_ever_scanned` to permanently remain `0`, blocking the three-value cost display. Combined with two other bugs below, the subagent cost tracking was effectively dead on Linux.
+- **statusline.sh** — Awk variable name `sub` collides with the built-in `sub()` string function. Renamed to `sub_cost` to prevent silent awk syntax failure, which caused `jsonl_total_cost` and `sub_session_cost` to always display as `0.000`.
+- **statusline.sh** — jq `// 0` alternative operator inside object value expressions with pipes (`{ key: [..] | add // 0 }`) requires parentheses on jq 1.7. Uncompilable expression silently failed under `2>/dev/null`, causing `sync_jsonl_cost` to never return real JSONL scan data.
+- **statusline.sh + statusline.ps1** — `jsonl_ever_scanned` now unconditionally set to `true` after the first scan attempt, even when no JSONL files exist yet. Previously required non-empty scan results to flip the flag, which meant projects with zero subagent activity would never activate the three-value cost format.
+
 ## [2026-06-16]
 
 ### Added

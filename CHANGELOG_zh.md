@@ -1,5 +1,13 @@
 # 更新日志
 
+## [2026-06-18]
+
+### Fixed
+- **statusline.sh** — 将 `sync_jsonl_cost()` 函数定义移到调用之前。Bash 顺序执行脚本，函数定义在第 329 行但首次调用在第 254 行，导致函数从未被 shell 找到。`jsonl_ever_scanned` 永久为 `0`，三值费用显示被阻塞。加上下面两个 bug，Linux 上的 subagent 费用追踪实际上完全不可用。
+- **statusline.sh** — Awk 变量名 `sub` 与内置函数 `sub()` 冲突。重命名为 `sub_cost` 避免 awk 静默语法错误，该错误导致 `jsonl_total_cost` 和 `sub_session_cost` 始终显示为 `0.000`。
+- **statusline.sh** — jq 1.7 中，对象值表达式含有管道时 `// 0` 操作符需要加括号（`{ key: [..] | add // 0 }` 需改为 `{ key: ([..] | add // 0) }`）。无法编译的表达式在 `2>/dev/null` 下静默失败，`sync_jsonl_cost` 始终返回零值而非真实 JSONL 扫描数据。
+- **statusline.sh + statusline.ps1** — `jsonl_ever_scanned` 现在在首次扫描尝试后无条件设为 `true`，即使 JSONL 文件不存在。此前需要非空扫描结果才能翻转标记，导致无 subagent 活动的项目永远不会激活三值费用格式。
+
 ## [2026-06-16]
 
 ### Added
