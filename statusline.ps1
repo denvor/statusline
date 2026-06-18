@@ -143,6 +143,7 @@ $curOut = if ($data.context_window.current_usage.output_tokens)             { [i
 $curCW  = if ($data.context_window.current_usage.cache_creation_input_tokens) { [int]$data.context_window.current_usage.cache_creation_input_tokens } else { 0 }
 $curCR  = if ($data.context_window.current_usage.cache_read_input_tokens)      { [int]$data.context_window.current_usage.cache_read_input_tokens }      else { 0 }
 $sessionId = if ($data.session_id) { $data.session_id } else { 'unknown' }
+$durationMs = if ($data.cost.total_duration_ms) { [int64]$data.cost.total_duration_ms } else { 0 }
 
 # Project key for per-project tracking
 $projectKey = if ($data.workspace.project_dir) { $data.workspace.project_dir } else { $data.cwd }
@@ -172,6 +173,9 @@ $jsonlBaselineCW     = if ($projState.jsonl_baseline_cache_write) { [int]$projSt
 $jsonlBaselineCR     = if ($projState.jsonl_baseline_cache_read)  { [int]$projState.jsonl_baseline_cache_read }  else { 0 }
 $jsonlEverScanned    = if ($projState.jsonl_ever_scanned) { $true } else { $false }
 
+$sesDur = if ($projState.session_duration_ms) { [int64]$projState.session_duration_ms } else { 0 }
+$cumDur = if ($projState.cumulative_duration_ms) { [int64]$projState.cumulative_duration_ms } else { 0 }
+
 $isNewProject = (-not $projState)
 
 # Check if session changed or new (per-project)
@@ -182,6 +186,7 @@ if ($isNewProject) {
     # Brand new project — start from scratch
     $cumIn = $curIn; $cumOut = $curOut; $cumCW = $curCW; $cumCR = $curCR
     $sesIn = $curIn; $sesOut = $curOut; $sesCW = $curCW; $sesCR = $curCR
+    $sesDur = $durationMs; $cumDur = $durationMs
 } elseif ($isNewSession) {
     # Same project, new session: session reset, cumulative preserved
     $cumIn  = [int]$projState.cumulative_input  + $curIn
@@ -189,6 +194,8 @@ if ($isNewProject) {
     $cumCW  = [int]$projState.cumulative_cache_write + $curCW
     $cumCR  = [int]$projState.cumulative_cache_read  + $curCR
     $sesIn = $curIn; $sesOut = $curOut; $sesCW = $curCW; $sesCR = $curCR
+    $cumDur = [int64]$projState.cumulative_duration_ms + $durationMs
+    $sesDur = $durationMs
 } else {
     # Same session — check for duplicate (debounce)
     $lastIn  = if ($projState.last_input)  { [int]$projState.last_input }  else { 0 }
@@ -207,10 +214,13 @@ if ($isNewProject) {
     $sesOut = if ($projState.session_output) { [int]$projState.session_output } else { 0 }
     $sesCW  = if ($projState.session_cache_write) { [int]$projState.session_cache_write } else { 0 }
     $sesCR  = if ($projState.session_cache_read)  { [int]$projState.session_cache_read }  else { 0 }
+    $sesDur = if ($projState.session_duration_ms) { [int64]$projState.session_duration_ms } else { 0 }
+    $cumDur = if ($projState.cumulative_duration_ms) { [int64]$projState.cumulative_duration_ms } else { 0 }
 
     if (-not $isDuplicate -and ($curIn + $curOut + $curCW + $curCR) -gt 0) {
         $cumIn  += $curIn;  $cumOut += $curOut;  $cumCW  += $curCW;  $cumCR  += $curCR
         $sesIn  += $curIn;  $sesOut += $curOut;  $sesCW  += $curCW;  $sesCR  += $curCR
+        $sesDur += $durationMs; $cumDur += $durationMs
     }
 }
 
@@ -294,6 +304,8 @@ try {
         jsonl_baseline_output  = $jsonlBaselineOutput
         jsonl_baseline_cache_write = $jsonlBaselineCW
         jsonl_baseline_cache_read  = $jsonlBaselineCR
+        session_duration_ms        = $sesDur
+        cumulative_duration_ms     = $cumDur
     } | ConvertTo-Json -Depth 5
     [System.IO.File]::WriteAllText($statePath, $newState, [System.Text.UTF8Encoding]::new($false))
 } catch {}
@@ -324,7 +336,9 @@ function Format-Duration($ms) {
     $hr = [math]::Floor($min / 60)
     return "${hr}h$($min % 60)m"
 }
-$durationStr = Format-Duration $data.cost.total_duration_ms
+$sesDurStr = Format-Duration $sesDur
+$cumDurStr = Format-Duration $cumDur
+$durationStr = if ($sesDurStr -and $cumDurStr) { "${sesDurStr} / ${cumDurStr}" } elseif ($sesDurStr) { $sesDurStr } else { '' }
 
 # Worktree?
 $isWorktree = ($data.worktree.name -or $data.workspace.git_worktree)

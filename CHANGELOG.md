@@ -2,6 +2,9 @@
 
 ## [2026-06-18]
 
+### Added
+- **statusline.sh + statusline.ps1** — Cumulative time tracking. Time display now shows `time 5:32 / 15:10` (session duration / project cumulative duration) instead of the previous single-message duration. New `session_duration_ms` and `cumulative_duration_ms` fields are persisted in per-project state files.
+
 ### Fixed
 - **statusline.sh** — `sync_jsonl_cost()` function definition moved before its call site. Bash executes scripts sequentially; the function was defined at line 329 but first called at line 254, so it was never found by the shell. This caused `jsonl_ever_scanned` to permanently remain `0`, blocking the three-value cost display. Combined with two other bugs below, the subagent cost tracking was effectively dead on Linux.
 - **statusline.sh** — Awk variable name `sub` collides with the built-in `sub()` string function. Renamed to `sub_cost` to prevent silent awk syntax failure, which caused `jsonl_total_cost` and `sub_session_cost` to always display as `0.000`.

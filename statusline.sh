@@ -183,6 +183,8 @@ else
     jsonl_baseline_cw=$(echo "$proj_state" | jq -r '.jsonl_baseline_cache_write // 0')
     jsonl_baseline_cr=$(echo "$proj_state" | jq -r '.jsonl_baseline_cache_read // 0')
     jsonl_ever_scanned=$(echo "$proj_state" | jq -r '.jsonl_ever_scanned // 0')
+    ses_dur=$(echo "$proj_state" | jq -r '.session_duration_ms // 0')
+    cum_dur=$(echo "$proj_state" | jq -r '.cumulative_duration_ms // 0')
     proj_session=$(echo "$proj_state" | jq -r '.session_id // ""')
     if [ "$session_id" != "unknown" ] && [ "$proj_session" != "$session_id" ]; then
         is_new_session=1
@@ -194,6 +196,7 @@ fi
 if [ "$is_new_project" -eq 1 ]; then
     cum_in=$cur_in; cum_out=$cur_out; cum_cw=$cur_cw; cum_cr=$cur_cr
     ses_in=$cur_in; ses_out=$cur_out; ses_cw=$cur_cw; ses_cr=$cur_cr
+    ses_dur=$duration_ms; cum_dur=$duration_ms
 elif [ "$is_new_session" -eq 1 ]; then
     old_cum_in=$(echo "$proj_state" | jq -r '.cumulative_input // 0')
     old_cum_out=$(echo "$proj_state" | jq -r '.cumulative_output // 0')
@@ -204,6 +207,7 @@ elif [ "$is_new_session" -eq 1 ]; then
     cum_cw=$((old_cum_cw + cur_cw))
     cum_cr=$((old_cum_cr + cur_cr))
     ses_in=$cur_in; ses_out=$cur_out; ses_cw=$cur_cw; ses_cr=$cur_cr
+    cum_dur=$((cum_dur + duration_ms)); ses_dur=$duration_ms
 else
     last_in=$(echo "$proj_state" | jq -r '.last_input // 0')
     last_out=$(echo "$proj_state" | jq -r '.last_output // 0')
@@ -225,6 +229,8 @@ else
     ses_out=$(echo "$proj_state" | jq -r '.session_output // 0')
     ses_cw=$(echo "$proj_state" | jq -r '.session_cache_write // 0')
     ses_cr=$(echo "$proj_state" | jq -r '.session_cache_read // 0')
+    ses_dur=$(echo "$proj_state" | jq -r '.session_duration_ms // 0')
+    cum_dur=$(echo "$proj_state" | jq -r '.cumulative_duration_ms // 0')
 
     total_cur=$((cur_in + cur_out + cur_cw + cur_cr))
     if [ "$is_dup" -eq 0 ] && [ "$total_cur" -gt 0 ]; then
@@ -236,6 +242,7 @@ else
         ses_out=$((ses_out + cur_out))
         ses_cw=$((ses_cw + cur_cw))
         ses_cr=$((ses_cr + cur_cr))
+        ses_dur=$((ses_dur + duration_ms)); cum_dur=$((cum_dur + duration_ms))
     fi
 fi
 
@@ -308,6 +315,7 @@ new_state=$(jq -n \
     --argjson jbi "$jsonl_baseline_input" --argjson jbo "$jsonl_baseline_output" \
     --argjson jbcw "$jsonl_baseline_cw" --argjson jbcr "$jsonl_baseline_cr" \
     --argjson jes "$jsonl_ever_scanned" \
+    --argjson sd "$ses_dur" --argjson cd "$cum_dur" \
     '{
         session_id: $sid,
         session_input: $si, session_output: $so, session_cache_write: $scw, session_cache_read: $scr,
@@ -317,7 +325,8 @@ new_state=$(jq -n \
         jsonl_scan_count: $jsc,
         jsonl_baseline_input: $jbi, jsonl_baseline_output: $jbo,
         jsonl_baseline_cache_write: $jbcw, jsonl_baseline_cache_read: $jbcr,
-        jsonl_ever_scanned: $jes
+        jsonl_ever_scanned: $jes,
+        session_duration_ms: $sd, cumulative_duration_ms: $cd
     }')
 # Ensure statusline directory exists
 mkdir -p "$statusline_dir" 2>/dev/null || true
@@ -359,7 +368,15 @@ format_duration() {
     local rem=$((min % 60))
     echo "${hr}h${rem}m"
 }
-duration_str=$(format_duration "$duration_ms")
+ses_dur_str=$(format_duration "$ses_dur")
+cum_dur_str=$(format_duration "$cum_dur")
+if [ -n "$ses_dur_str" ] && [ -n "$cum_dur_str" ]; then
+    duration_str="${ses_dur_str} / ${cum_dur_str}"
+elif [ -n "$ses_dur_str" ]; then
+    duration_str="$ses_dur_str"
+else
+    duration_str=""
+fi
 
 # ── 8. Number formatting (pure bash, nearest rounding) ──────────────
 format_num() {

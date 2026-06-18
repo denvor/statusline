@@ -2,6 +2,9 @@
 
 ## [2026-06-18]
 
+### Added
+- **statusline.sh + statusline.ps1** — 累计时间追踪。时间显示改为 `time 5:32 / 15:10`（当前会话耗时 / 项目累计耗时），取代之前的单条消息耗时。状态文件新增 `session_duration_ms` 和 `cumulative_duration_ms` 字段。
+
 ### Fixed
 - **statusline.sh** — 将 `sync_jsonl_cost()` 函数定义移到调用之前。Bash 顺序执行脚本，函数定义在第 329 行但首次调用在第 254 行，导致函数从未被 shell 找到。`jsonl_ever_scanned` 永久为 `0`，三值费用显示被阻塞。加上下面两个 bug，Linux 上的 subagent 费用追踪实际上完全不可用。
 - **statusline.sh** — Awk 变量名 `sub` 与内置函数 `sub()` 冲突。重命名为 `sub_cost` 避免 awk 静默语法错误，该错误导致 `jsonl_total_cost` 和 `sub_session_cost` 始终显示为 `0.000`。
