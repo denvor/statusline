@@ -156,6 +156,8 @@ state_path="${statusline_dir}/statusline_state_${safe_name}.json"
 
 cum_in=0; cum_out=0; cum_cw=0; cum_cr=0
 ses_in=0; ses_out=0; ses_cw=0; ses_cr=0
+session_cost_stored=0; cumulative_cost_stored=0
+jsonl_total_cost_stored=0; jsonl_total_cost_baseline=0
 
 # Read existing state (per-project file, no projects wrapper)
 if [ -f "$state_path" ]; then
@@ -168,9 +170,10 @@ if [ -z "$proj_state" ]; then
     is_new_project=1
     is_new_session=1
     jsonl_input=0; jsonl_output=0; jsonl_cw=0; jsonl_cr=0; jsonl_scan_count=0
-    jsonl_baseline_input=0; jsonl_baseline_output=0; jsonl_baseline_cw=0; jsonl_baseline_cr=0
     jsonl_ever_scanned=0
     ses_dur_baseline=0
+    session_cost_stored=0; cumulative_cost_stored=0
+    jsonl_total_cost_stored=0; jsonl_total_cost_baseline=0
 else
     is_new_project=0
     # Load cached JSONL scan results from state
@@ -179,14 +182,14 @@ else
     jsonl_cw=$(echo "$proj_state" | jq -r '.jsonl_cache_write // 0')
     jsonl_cr=$(echo "$proj_state" | jq -r '.jsonl_cache_read // 0')
     jsonl_scan_count=$(echo "$proj_state" | jq -r '.jsonl_scan_count // 0')
-    jsonl_baseline_input=$(echo "$proj_state" | jq -r '.jsonl_baseline_input // 0')
-    jsonl_baseline_output=$(echo "$proj_state" | jq -r '.jsonl_baseline_output // 0')
-    jsonl_baseline_cw=$(echo "$proj_state" | jq -r '.jsonl_baseline_cache_write // 0')
-    jsonl_baseline_cr=$(echo "$proj_state" | jq -r '.jsonl_baseline_cache_read // 0')
     jsonl_ever_scanned=$(echo "$proj_state" | jq -r '.jsonl_ever_scanned // 0')
     ses_dur=$(echo "$proj_state" | jq -r '.session_duration_ms // 0')
     cum_dur=$(echo "$proj_state" | jq -r '.cumulative_duration_ms // 0')
     ses_dur_baseline=$(echo "$proj_state" | jq -r '.session_duration_baseline // 0')
+    session_cost_stored=$(echo "$proj_state" | jq -r '.session_cost_stored // 0')
+    cumulative_cost_stored=$(echo "$proj_state" | jq -r '.cumulative_cost_stored // 0')
+    jsonl_total_cost_stored=$(echo "$proj_state" | jq -r '.jsonl_total_cost_stored // 0')
+    jsonl_total_cost_baseline=$(echo "$proj_state" | jq -r '.jsonl_total_cost_baseline // 0')
     proj_session=$(echo "$proj_state" | jq -r '.session_id // ""')
     if [ "$session_id" != "unknown" ] && [ "$proj_session" != "$session_id" ]; then
         is_new_session=1
@@ -199,6 +202,10 @@ if [ "$is_new_project" -eq 1 ]; then
     cum_in=$cur_in; cum_out=$cur_out; cum_cw=$cur_cw; cum_cr=$cur_cr
     ses_in=$cur_in; ses_out=$cur_out; ses_cw=$cur_cw; ses_cr=$cur_cr
     ses_dur_baseline=$duration_ms; cum_dur=$duration_ms
+    # Compute per-message cost using current model's prices
+    read session_cost_stored cumulative_cost_stored <<< $(awk -v i="$cur_in" -v o="$cur_out" -v cw="$cur_cw" -v cr="$cur_cr" \
+        -v ip="$input_price" -v op="$output_price" -v cwp="$cache_write_price" -v crp="$cache_read_price" \
+        'BEGIN { c = (i/1000000)*ip + (o/1000000)*op + (cw/1000000)*cwp + (cr/1000000)*crp; printf "%.9f %.9f", c, c }')
 elif [ "$is_new_session" -eq 1 ]; then
     old_cum_in=$(echo "$proj_state" | jq -r '.cumulative_input // 0')
     old_cum_out=$(echo "$proj_state" | jq -r '.cumulative_output // 0')
@@ -212,6 +219,11 @@ elif [ "$is_new_session" -eq 1 ]; then
     # New session: snapshot duration_ms as baseline, ses_dur starts from 0
     ses_dur_baseline=$duration_ms
     cum_dur=$((cum_dur + duration_ms))
+    # New session: session cost reset to this message's cost (like ses_in)
+    session_cost_stored=$(awk -v i="$cur_in" -v o="$cur_out" -v cw="$cur_cw" -v cr="$cur_cr" \
+        -v ip="$input_price" -v op="$output_price" -v cwp="$cache_write_price" -v crp="$cache_read_price" \
+        'BEGIN { printf "%.9f", (i/1000000)*ip + (o/1000000)*op + (cw/1000000)*cwp + (cr/1000000)*crp }')
+    # cumulative_cost_stored preserved
 else
     last_in=$(echo "$proj_state" | jq -r '.last_input // 0')
     last_out=$(echo "$proj_state" | jq -r '.last_output // 0')
@@ -246,6 +258,15 @@ else
         ses_out=$((ses_out + cur_out))
         ses_cw=$((ses_cw + cur_cw))
         ses_cr=$((ses_cr + cur_cr))
+        # Incremental cost using current model's prices (per-message)
+        read session_cost_stored cumulative_cost_stored <<< $(awk \
+            -v sc="$session_cost_stored" -v cc="$cumulative_cost_stored" \
+            -v i="$cur_in" -v o="$cur_out" -v cw="$cur_cw" -v cr="$cur_cr" \
+            -v ip="$input_price" -v op="$output_price" -v cwp="$cache_write_price" -v crp="$cache_read_price" \
+            'BEGIN {
+                mc = (i/1000000)*ip + (o/1000000)*op + (cw/1000000)*cwp + (cr/1000000)*crp;
+                printf "%.9f %.9f", sc + mc, cc + mc
+            }')
         # duration_ms is session-cumulative: add only the delta since last recording
         old_raw_dur=$((ses_dur_baseline + old_ses_dur))
         dur_delta=$((duration_ms - old_raw_dur))
@@ -272,12 +293,24 @@ elif [ "$ses_dur_baseline" -eq 0 ] && [ "$ses_dur" -gt 0 ] && [ "$is_new_project
     ses_dur=0
 fi
 
-# New session: snapshot JSONL total as baseline for per-session subagent tracking
+# Migration: seed stored costs from old state that lacked them
+if [ "$is_new_project" -eq 0 ] && \
+   [ "$(awk -v sc="$session_cost_stored" 'BEGIN { print (sc == 0.0) ? 1 : 0 }')" -eq 1 ] && \
+   [ "$cumulative_input" -gt 0 ] && [ "$cumulative_output" -gt 0 ]; then
+    read session_cost_stored cumulative_cost_stored <<< $(awk \
+        -v si="$ses_in" -v so="$ses_out" -v scw="$ses_cw" -v scr="$ses_cr" \
+        -v ci="$cum_in" -v co="$cum_out" -v ccw="$cum_cw" -v ccr="$cum_cr" \
+        -v ip="$input_price" -v op="$output_price" -v cwp="$cache_write_price" -v crp="$cache_read_price" \
+        'BEGIN {
+            s = (si/1000000)*ip + (so/1000000)*op + (scw/1000000)*cwp + (scr/1000000)*crp;
+            c = (ci/1000000)*ip + (co/1000000)*op + (ccw/1000000)*cwp + (ccr/1000000)*crp;
+            printf "%.9f %.9f", s, c
+        }')
+fi
+
+# New session: snapshot JSONL total cost as baseline for per-session subagent tracking
 if [ "$is_new_session" -eq 1 ] && [ "$is_new_project" -eq 0 ]; then
-    jsonl_baseline_input=$jsonl_input
-    jsonl_baseline_output=$jsonl_output
-    jsonl_baseline_cw=$jsonl_cw
-    jsonl_baseline_cr=$jsonl_cr
+    jsonl_total_cost_baseline=$jsonl_total_cost_stored
 fi
 
 # ── JSONL subagent cost scan ─────────────────────────────────
@@ -288,7 +321,7 @@ sync_jsonl_cost() {
     local target_dir="${HOME}/.claude/projects/${session_dir_name}"
 
     if [ ! -d "$target_dir" ]; then
-        echo '{"input":0,"output":0,"cw":0,"cr":0}'
+        echo '{"total_cost":0}'
         return 0
     fi
 
@@ -298,22 +331,77 @@ sync_jsonl_cost() {
         jq -s '
             [ .[] | select(.type == "assistant")
                   | select(.message.usage // empty | (.input_tokens // 0) + (.output_tokens // 0) > 0)
-                  | { timestamp, usage: .message.usage }
+                  | { model: (.message.model // "unknown"), timestamp, usage: .message.usage }
             ] as $all
             | $all
-            | unique_by("\(.timestamp)|\(.usage.input_tokens)|\(.usage.output_tokens)")
-            | { input: ([.[].usage.input_tokens] | add // 0),
+            | unique_by("\(.model)|\(.timestamp)|\(.usage.input_tokens)|\(.usage.output_tokens)")
+            | group_by(.model)
+            | map({
+                model: .[0].model,
+                input: ([.[].usage.input_tokens] | add // 0),
                 output: ([.[].usage.output_tokens] | add // 0),
                 cw: ([.[].usage.cache_creation_input_tokens] | add // 0),
-                cr: ([.[].usage.cache_read_input_tokens] | add // 0) }
+                cr: ([.[].usage.cache_read_input_tokens] | add // 0)
+              })
         ' 2>/dev/null) || true
 
     if [ -z "$result" ] || [ "$result" = "null" ]; then
-        echo '{"input":0,"output":0,"cw":0,"cr":0}'
+        echo '{"total_cost":0}'
         return 0
     fi
 
-    echo "$result"
+    # For each model group, look up INI prices and compute cost
+    local total=0
+    local models_count
+    models_count=$(echo "$result" | jq 'length')
+    for i in $(seq 0 $((models_count - 1))); do
+        local model group_tokens
+        group_tokens=$(echo "$result" | jq ".[$i]")
+        local mod=$(echo "$group_tokens" | jq -r '.model')
+        local grp_in=$(echo "$group_tokens" | jq -r '.input // 0')
+        local grp_out=$(echo "$group_tokens" | jq -r '.output // 0')
+        local grp_cw=$(echo "$group_tokens" | jq -r '.cw // 0')
+        local grp_cr=$(echo "$group_tokens" | jq -r '.cr // 0')
+
+        # Look up this model's pricing from INI
+        local mp_ip=2.00 mp_op=8.00 mp_cwp=2.00 mp_crp=0.50
+        if [ -n "$ini_content" ]; then
+            local section_data
+            section_data=$(echo "$ini_content" | awk -v sec="[$mod]" '
+                BEGIN { found=0 }
+                $0 == sec   { found=1; next }
+                /^\[/       { found=0 }
+                found && /^[^#;]/ && /=/ { gsub(/^[[:space:]]+|[[:space:]]+$/, ""); print }
+            ')
+            if [ -z "$section_data" ]; then
+                # Fallback to [default]
+                section_data=$(echo "$ini_content" | awk -v sec="[default]" '
+                    BEGIN { found=0 }
+                    $0 == sec   { found=1; next }
+                    /^\[/       { found=0 }
+                    found && /^[^#;]/ && /=/ { gsub(/^[[:space:]]+|[[:space:]]+$/, ""); print }
+                ')
+            fi
+            if [ -n "$section_data" ]; then
+                while IFS='=' read -r key val; do
+                    case "$key" in
+                        input_price)       mp_ip="$val" ;;
+                        output_price)      mp_op="$val" ;;
+                        cache_write_price) mp_cwp="$val" ;;
+                        cache_read_price)  mp_crp="$val" ;;
+                    esac
+                done <<< "$section_data"
+            fi
+        fi
+
+        local model_cost
+        model_cost=$(awk -v i="$grp_in" -v o="$grp_out" -v cw="$grp_cw" -v cr="$grp_cr" \
+            -v ip="$mp_ip" -v op="$mp_op" -v cwp="$mp_cwp" -v crp="$mp_crp" \
+            'BEGIN { printf "%.9f", (i/1000000)*ip + (o/1000000)*op + (cw/1000000)*cwp + (cr/1000000)*crp }')
+        total=$(awk -v a="$total" -v b="$model_cost" 'BEGIN { printf "%.9f", a + b }')
+    done
+
+    printf '{"total_cost":"%s"}' "$total"
 }
 
 # ── Periodic JSONL scan for subagent cost (every ~10 calls) ──
@@ -322,16 +410,13 @@ if [ "$jsonl_sync_interval" -gt 0 ] && [ "$jsonl_scan_count" -ge "$jsonl_sync_in
     jsonl_scan_count=0
     jsonl_result=$(sync_jsonl_cost "$project_key" 2>/dev/null) || true
     if [ -n "$jsonl_result" ]; then
-        jsonl_scan_input=$(echo "$jsonl_result" | jq -r '.input // 0')
-        jsonl_scan_output=$(echo "$jsonl_result" | jq -r '.output // 0')
-        jsonl_scan_cw=$(echo "$jsonl_result" | jq -r '.cw // 0')
-        jsonl_scan_cr=$(echo "$jsonl_result" | jq -r '.cr // 0')
-        # Only update if scan result >= current values (protect against
-        # API switch where new provider has no JSONL files yet)
-        [ "$jsonl_scan_input" -ge "$jsonl_input" ] && jsonl_input=$jsonl_scan_input
-        [ "$jsonl_scan_output" -ge "$jsonl_output" ] && jsonl_output=$jsonl_scan_output
-        [ "$jsonl_scan_cw" -ge "$jsonl_cw" ] && jsonl_cw=$jsonl_scan_cw
-        [ "$jsonl_scan_cr" -ge "$jsonl_cr" ] && jsonl_cr=$jsonl_scan_cr
+        jsonl_scan_total=$(echo "$jsonl_result" | jq -r '.total_cost // 0')
+        # Only update if scan cost >= current stored (monotonic safeguard)
+        is_larger=$(awk -v new="$jsonl_scan_total" -v cur="$jsonl_total_cost_stored" \
+            'BEGIN { print (new >= cur) ? 1 : 0 }')
+        if [ "$is_larger" -eq 1 ]; then
+            jsonl_total_cost_stored=$jsonl_scan_total
+        fi
         jsonl_ever_scanned=1
     fi
 fi
@@ -344,11 +429,11 @@ new_state=$(jq -n \
     --argjson li "$cur_in" --argjson lo "$cur_out" --argjson lcw "$cur_cw" --argjson lcr "$cur_cr" \
     --argjson ji "$jsonl_input" --argjson jo "$jsonl_output" --argjson jcw "$jsonl_cw" --argjson jcr "$jsonl_cr" \
     --argjson jsc "$jsonl_scan_count" \
-    --argjson jbi "$jsonl_baseline_input" --argjson jbo "$jsonl_baseline_output" \
-    --argjson jbcw "$jsonl_baseline_cw" --argjson jbcr "$jsonl_baseline_cr" \
     --argjson jes "$jsonl_ever_scanned" \
     --argjson sd "$ses_dur" --argjson cd "$cum_dur" \
     --argjson sdb "$ses_dur_baseline" \
+    --argjson scs "$session_cost_stored" --argjson ccs "$cumulative_cost_stored" \
+    --argjson jtc "$jsonl_total_cost_stored" --argjson jtb "$jsonl_total_cost_baseline" \
     '{
         session_id: $sid,
         session_input: $si, session_output: $so, session_cache_write: $scw, session_cache_read: $scr,
@@ -356,29 +441,18 @@ new_state=$(jq -n \
         last_input: $li, last_output: $lo, last_cache_write: $lcw, last_cache_read: $lcr,
         jsonl_input: $ji, jsonl_output: $jo, jsonl_cache_write: $jcw, jsonl_cache_read: $jcr,
         jsonl_scan_count: $jsc,
-        jsonl_baseline_input: $jbi, jsonl_baseline_output: $jbo,
-        jsonl_baseline_cache_write: $jbcw, jsonl_baseline_cache_read: $jbcr,
         jsonl_ever_scanned: $jes,
-        session_duration_ms: $sd, session_duration_baseline: $sdb, cumulative_duration_ms: $cd
+        session_duration_ms: $sd, session_duration_baseline: $sdb, cumulative_duration_ms: $cd,
+        session_cost_stored: $scs, cumulative_cost_stored: $ccs,
+        jsonl_total_cost_stored: $jtc, jsonl_total_cost_baseline: $jtb
     }')
 # Ensure statusline directory exists
 mkdir -p "$statusline_dir" 2>/dev/null || true
 echo "$new_state" > "$state_path"
 
-# ── 6. Calculate cost (single awk call for both costs) ──────────────
-read session_cost cumulative_cost cum_is_zero <<< $(awk -v si="$ses_in" -v so="$ses_out" -v scw="$ses_cw" -v scr="$ses_cr" \
-    -v ci="$cum_in" -v co="$cum_out" -v ccw="$cum_cw" -v ccr="$cum_cr" \
-    -v ip="$input_price" -v op="$output_price" -v cwp="$cache_write_price" -v crp="$cache_read_price" \
-    'BEGIN {
-        s = (si/1000000)*ip + (so/1000000)*op + (scw/1000000)*cwp + (scr/1000000)*crp;
-        c = (ci/1000000)*ip + (co/1000000)*op + (ccw/1000000)*cwp + (ccr/1000000)*crp;
-        printf "%.6f %.6f %d", s, c, (c == 0.0) ? 1 : 0
-    }')
-
-# Fallback to Claude Code built-in cost
-if [ "$cum_is_zero" -eq 1 ] && [ "$cc_cost" != "0" ] && [ -n "$cc_cost" ]; then
-    cumulative_cost="$cc_cost"
-fi
+# ── 6. Use stored costs (computed per-message at model's prices) ──
+session_cost=$session_cost_stored
+cumulative_cost=$cumulative_cost_stored
 
 # ── 7. Duration formatting ───────────────────────────────────────────
 format_duration() {
@@ -485,29 +559,12 @@ bar="${bar_color}${bar_filled}${dim}${bar_empty}${rst}"
 
 pct_str=$(printf '%3s' "$context_pct")
 
-# ── JSONL session delta for cost display ──────────────────────
-jsonl_session_input=$(( jsonl_input - jsonl_baseline_input ))
-jsonl_session_output=$(( jsonl_output - jsonl_baseline_output ))
-jsonl_session_cw=$(( jsonl_cw - jsonl_baseline_cw ))
-jsonl_session_cr=$(( jsonl_cr - jsonl_baseline_cr ))
-[ "$jsonl_session_input" -lt 0 ] && jsonl_session_input=0
-[ "$jsonl_session_output" -lt 0 ] && jsonl_session_output=0
-[ "$jsonl_session_cw" -lt 0 ] && jsonl_session_cw=0
-[ "$jsonl_session_cr" -lt 0 ] && jsonl_session_cr=0
-
-# 合并三次 awk 为一次：同时计算 jsonl_session_cost / jsonl_total_cost / sub_session_cost
-read jsonl_session_cost jsonl_total_cost sub_session_cost <<< $(awk \
-    -v si="$jsonl_session_input" -v so="$jsonl_session_output" \
-    -v scw="$jsonl_session_cw" -v scr="$jsonl_session_cr" \
-    -v ji="$jsonl_input" -v jo="$jsonl_output" -v jcw="$jsonl_cw" -v jcr="$jsonl_cr" \
-    -v sc="$session_cost" \
-    -v ip="$input_price" -v op="$output_price" -v cwp="$cache_write_price" -v crp="$cache_read_price" \
-    'BEGIN {
-        jsc = (si/1000000)*ip + (so/1000000)*op + (scw/1000000)*cwp + (scr/1000000)*crp;
-        jtc = (ji/1000000)*ip + (jo/1000000)*op + (jcw/1000000)*cwp + (jcr/1000000)*crp;
-        sub_cost = jsc - sc; if (sub_cost < 0) sub_cost = 0;
-        printf "%.6f %.6f %.6f", jsc, jtc, sub_cost
-    }')
+# ── JSONL cost from stored values (per-model priced in scan) ──
+jsonl_total_cost=$(awk -v v="$jsonl_total_cost_stored" 'BEGIN { printf "%.6f", v }')
+jsonl_session_cost=$(awk -v cur="$jsonl_total_cost_stored" -v bl="$jsonl_total_cost_baseline" \
+    'BEGIN { d = cur - bl; if (d < 0) d = 0; printf "%.6f", d }')
+sub_session_cost=$(awk -v jsc="$jsonl_session_cost" -v sc="$session_cost" \
+    'BEGIN { s = jsc - sc; if (s < 0) s = 0; printf "%.6f", s }')
 
 if [ "$jsonl_ever_scanned" = "1" ]; then
     # 已扫描过，显示完整三值：主会话 / subagent / 项目总（含sub）

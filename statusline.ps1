@@ -167,15 +167,17 @@ $jsonlOutput = if ($projState.jsonl_output) { [int]$projState.jsonl_output } els
 $jsonlCW     = if ($projState.jsonl_cache_write) { [int]$projState.jsonl_cache_write } else { 0 }
 $jsonlCR     = if ($projState.jsonl_cache_read)  { [int]$projState.jsonl_cache_read }  else { 0 }
 $jsonlScanCount = if ($projState.jsonl_scan_count) { [int]$projState.jsonl_scan_count } else { 0 }
-$jsonlBaselineInput  = if ($projState.jsonl_baseline_input)  { [int]$projState.jsonl_baseline_input }  else { 0 }
-$jsonlBaselineOutput = if ($projState.jsonl_baseline_output) { [int]$projState.jsonl_baseline_output } else { 0 }
-$jsonlBaselineCW     = if ($projState.jsonl_baseline_cache_write) { [int]$projState.jsonl_baseline_cache_write } else { 0 }
-$jsonlBaselineCR     = if ($projState.jsonl_baseline_cache_read)  { [int]$projState.jsonl_baseline_cache_read }  else { 0 }
 $jsonlEverScanned    = if ($projState.jsonl_ever_scanned) { $true } else { $false }
 
 $sesDur = if ($projState.session_duration_ms) { [int64]$projState.session_duration_ms } else { 0 }
 $sesDurBaseline = if ($projState.session_duration_baseline) { [int64]$projState.session_duration_baseline } else { 0 }
 $cumDur = if ($projState.cumulative_duration_ms) { [int64]$projState.cumulative_duration_ms } else { 0 }
+
+# Per-model cost tracking
+$sessionCostStored    = if ($projState.session_cost_stored)    { [double]$projState.session_cost_stored }    else { 0.0 }
+$cumulativeCostStored = if ($projState.cumulative_cost_stored) { [double]$projState.cumulative_cost_stored } else { 0.0 }
+$jsonlTotalCostStored = if ($projState.jsonl_total_cost_stored) { [double]$projState.jsonl_total_cost_stored } else { 0.0 }
+$jsonlTotalCostBaseline = if ($projState.jsonl_total_cost_baseline) { [double]$projState.jsonl_total_cost_baseline } else { 0.0 }
 
 $isNewProject = (-not $projState)
 
@@ -188,6 +190,8 @@ if ($isNewProject) {
     $cumIn = $curIn; $cumOut = $curOut; $cumCW = $curCW; $cumCR = $curCR
     $sesIn = $curIn; $sesOut = $curOut; $sesCW = $curCW; $sesCR = $curCR
     $sesDurBaseline = $durationMs; $cumDur = $durationMs
+    $msgCost = ($curIn/1000000.0)*$pricing['input_price'] + ($curOut/1000000.0)*$pricing['output_price'] + ($curCW/1000000.0)*$pricing['cache_write_price'] + ($curCR/1000000.0)*$pricing['cache_read_price']
+    $sessionCostStored = $msgCost; $cumulativeCostStored = $msgCost
 } elseif ($isNewSession) {
     # Same project, new session: session reset, cumulative preserved
     $cumIn  = [int]$projState.cumulative_input  + $curIn
@@ -198,6 +202,8 @@ if ($isNewProject) {
     # New session: snapshot duration_ms as baseline, ses_dur starts from 0
     $sesDurBaseline = $durationMs
     $cumDur += $durationMs
+    $msgCost = ($curIn/1000000.0)*$pricing['input_price'] + ($curOut/1000000.0)*$pricing['output_price'] + ($curCW/1000000.0)*$pricing['cache_write_price'] + ($curCR/1000000.0)*$pricing['cache_read_price']
+    $sessionCostStored = $msgCost
 } else {
     # Same session — check for duplicate (debounce)
     $lastIn  = if ($projState.last_input)  { [int]$projState.last_input }  else { 0 }
@@ -222,6 +228,9 @@ if ($isNewProject) {
     if (-not $isDuplicate -and ($curIn + $curOut + $curCW + $curCR) -gt 0) {
         $cumIn  += $curIn;  $cumOut += $curOut;  $cumCW  += $curCW;  $cumCR  += $curCR
         $sesIn  += $curIn;  $sesOut += $curOut;  $sesCW  += $curCW;  $sesCR  += $curCR
+        # Incremental cost using current model's prices
+        $msgCost = ($curIn/1000000.0)*$pricing['input_price'] + ($curOut/1000000.0)*$pricing['output_price'] + ($curCW/1000000.0)*$pricing['cache_write_price'] + ($curCR/1000000.0)*$pricing['cache_read_price']
+        $sessionCostStored += $msgCost; $cumulativeCostStored += $msgCost
         # durationMs is session-cumulative: add only the delta since last recording
         $oldRawDur = $sesDurBaseline + $sesDur
         $durDelta = $durationMs - $oldRawDur
@@ -248,12 +257,15 @@ if ($sesDur -lt 0) {
     $sesDur = 0
 }
 
-# New session: snapshot JSONL total as baseline for per-session subagent tracking
+# Migration: seed stored costs from old state that lacked them
+if (-not $isNewProject -and $sessionCostStored -eq 0.0 -and $cumulativeInput -gt 0 -and $cumulativeOutput -gt 0) {
+    $sessionCostStored    = ($sesIn/1000000.0)*$pricing['input_price'] + ($sesOut/1000000.0)*$pricing['output_price'] + ($sesCW/1000000.0)*$pricing['cache_write_price'] + ($sesCR/1000000.0)*$pricing['cache_read_price']
+    $cumulativeCostStored = ($cumIn/1000000.0)*$pricing['input_price'] + ($cumOut/1000000.0)*$pricing['output_price'] + ($cumCW/1000000.0)*$pricing['cache_write_price'] + ($cumCR/1000000.0)*$pricing['cache_read_price']
+}
+
+# New session: snapshot JSONL total cost as baseline for per-session subagent tracking
 if ($isNewSession -and -not $isNewProject) {
-    $jsonlBaselineInput  = $jsonlInput
-    $jsonlBaselineOutput = $jsonlOutput
-    $jsonlBaselineCW     = $jsonlCW
-    $jsonlBaselineCR     = $jsonlCR
+    $jsonlTotalCostBaseline = $jsonlTotalCostStored
 }
 
 # --- Periodic JSONL scan for subagent cost ---
@@ -266,6 +278,7 @@ if ($jsonlSyncInterval -gt 0 -and $jsonlScanCount -ge $jsonlSyncInterval) {
         $targetDir = Join-Path $projectsDir $sessionDirName
         if (Test-Path $targetDir) {
             $jsonlTotalInput = 0; $jsonlTotalOutput = 0; $jsonlTotalCW = 0; $jsonlTotalCR = 0
+            $modelGroups = @{}  # model_name → @{input=0, output=0, cw=0, cr=0}
             $jsseen = @{}
             Get-ChildItem $targetDir -Recurse -Filter *.jsonl -ErrorAction SilentlyContinue | ForEach-Object {
                 try {
@@ -286,14 +299,37 @@ if ($jsonlSyncInterval -gt 0 -and $jsonlScanCount -ge $jsonlSyncInterval) {
                         $jssig = "$($jsdata.timestamp)|$ji|$jo"
                         if ($jsseen.ContainsKey($jssig)) { return }
                         $jsseen[$jssig] = $true
-                        $jsonlTotalInput += $ji; $jsonlTotalOutput += $jo
-                        $jsonlTotalCW += $jcw_local; $jsonlTotalCR += $jcr_local
+                        $model = if ($jsdata.message.model) { $jsdata.message.model } else { 'unknown' }
+                        if (-not $modelGroups.ContainsKey($model)) { $modelGroups[$model] = @{input=0; output=0; cw=0; cr=0} }
+                        $modelGroups[$model].input += $ji
+                        $modelGroups[$model].output += $jo
+                        $modelGroups[$model].cw += $jcw_local
+                        $modelGroups[$model].cr += $jcr_local
                     }
                 } catch { }
             }
-            if ($jsonlTotalInput -gt 0 -or $jsonlTotalOutput -gt 0 -or $jsonlTotalCW -gt 0 -or $jsonlTotalCR -gt 0) {
-                $jsonlInput = $jsonlTotalInput; $jsonlOutput = $jsonlTotalOutput
-                $jsonlCW = $jsonlTotalCW; $jsonlCR = $jsonlTotalCR
+            # Compute per-model cost using INI pricing
+            $scanTotalCost = 0.0
+            foreach ($mod in $modelGroups.Keys) {
+                $g = $modelGroups[$mod]
+                $mp_ip = 2.00; $mp_op = 8.00; $mp_cwp = 2.00; $mp_crp = 0.50
+                # Look up model pricing from INI
+                if ($iniSections.ContainsKey($mod)) {
+                    $s = $iniSections[$mod]
+                    if ($s.ContainsKey('input_price')) { $mp_ip = [double]$s['input_price'] }
+                    if ($s.ContainsKey('output_price')) { $mp_op = [double]$s['output_price'] }
+                    if ($s.ContainsKey('cache_write_price')) { $mp_cwp = [double]$s['cache_write_price'] }
+                    if ($s.ContainsKey('cache_read_price')) { $mp_crp = [double]$s['cache_read_price'] }
+                } elseif ($iniSections.ContainsKey('default')) {
+                    $s = $iniSections['default']
+                    if ($s.ContainsKey('input_price')) { $mp_ip = [double]$s['input_price'] }
+                    if ($s.ContainsKey('output_price')) { $mp_op = [double]$s['output_price'] }
+                $modelCost = ($g.input/1000000.0)*$mp_ip + ($g.output/1000000.0)*$mp_op + ($g.cw/1000000.0)*$mp_cwp + ($g.cr/1000000.0)*$mp_crp
+                $scanTotalCost += $modelCost
+            }
+            # Update stored cost (monotonic)
+            if ($scanTotalCost -ge $jsonlTotalCostStored) {
+                $jsonlTotalCostStored = $scanTotalCost
             }
         }
         $jsonlEverScanned = $true
@@ -322,34 +358,22 @@ try {
         jsonl_output           = $jsonlOutput
         jsonl_cache_write      = $jsonlCW
         jsonl_cache_read       = $jsonlCR
-        jsonl_scan_count       = $jsonlScanCount
-        jsonl_ever_scanned     = $jsonlEverScanned
-        jsonl_baseline_input   = $jsonlBaselineInput
-        jsonl_baseline_output  = $jsonlBaselineOutput
-        jsonl_baseline_cache_write = $jsonlBaselineCW
-        jsonl_baseline_cache_read  = $jsonlBaselineCR
-        session_duration_ms        = $sesDur
-        session_duration_baseline  = $sesDurBaseline
-        cumulative_duration_ms     = $cumDur
+        jsonl_scan_count         = $jsonlScanCount
+        jsonl_ever_scanned       = $jsonlEverScanned
+        session_duration_ms      = $sesDur
+        session_duration_baseline = $sesDurBaseline
+        cumulative_duration_ms   = $cumDur
+        session_cost_stored      = $sessionCostStored
+        cumulative_cost_stored   = $cumulativeCostStored
+        jsonl_total_cost_stored  = $jsonlTotalCostStored
+        jsonl_total_cost_baseline = $jsonlTotalCostBaseline
     } | ConvertTo-Json -Depth 5
     [System.IO.File]::WriteAllText($statePath, $newState, [System.Text.UTF8Encoding]::new($false))
 } catch {}
 
-# --- Calculate cost from custom pricing ---
-function Calc-Cost($i, $o, $cw, $cr) {
-    $v = ($i / 1000000.0) * $pricing['input_price'] +
-         ($o / 1000000.0) * $pricing['output_price'] +
-         ($cw / 1000000.0) * $pricing['cache_write_price'] +
-         ($cr / 1000000.0) * $pricing['cache_read_price']
-    return $v
-}
-$sessionCost    = Calc-Cost $sesIn $sesOut $sesCW $sesCR
-$cumulativeCost = Calc-Cost $cumIn $cumOut $cumCW $cumCR
-
-# Fallback to Claude Code's built-in cost if both are 0
-if ($cumulativeCost -eq 0.0 -and $data.cost.total_cost_usd) {
-    $cumulativeCost = [double]$data.cost.total_cost_usd
-}
+# --- Use stored costs (computed per-message at model's prices) ---
+$sessionCost    = $sessionCostStored
+$cumulativeCost = $cumulativeCostStored
 
 # Session duration
 function Format-Duration($ms) {
@@ -445,15 +469,10 @@ $callInStr  = Format-Num $curIn
 $callOutStr = Format-Num $curOut
 $contextSizeStr = Format-Num $contextSize
 
-# Compute JSONL session delta (total - baseline at session start)
-$jsonlSessionInput  = [Math]::Max(0, $jsonlInput  - $jsonlBaselineInput)
-$jsonlSessionOutput = [Math]::Max(0, $jsonlOutput - $jsonlBaselineOutput)
-$jsonlSessionCW     = [Math]::Max(0, $jsonlCW     - $jsonlBaselineCW)
-$jsonlSessionCR     = [Math]::Max(0, $jsonlCR     - $jsonlBaselineCR)
-
-$jsonlSessionCost = Calc-Cost $jsonlSessionInput $jsonlSessionOutput $jsonlSessionCW $jsonlSessionCR
-$jsonlTotalCost   = Calc-Cost $jsonlInput $jsonlOutput $jsonlCW $jsonlCR
-$subSessionCost   = [Math]::Max(0, $jsonlSessionCost - $sessionCost)
+# JSONL cost from stored values (per-model priced in scan)
+$jsonlTotalCost   = [Math]::Max(0.0, $jsonlTotalCostStored)
+$jsonlSessionCost = [Math]::Max(0.0, $jsonlTotalCostStored - $jsonlTotalCostBaseline)
+$subSessionCost   = [Math]::Max(0.0, $jsonlSessionCost - $sessionCost)
 
 if ($jsonlEverScanned) {
     # 已扫描过，显示完整三值：主会话 / subagent / 项目总（含sub）
