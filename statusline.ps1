@@ -324,6 +324,7 @@ if ($jsonlSyncInterval -gt 0 -and $jsonlScanCount -ge $jsonlSyncInterval) {
                     $s = $iniSections['default']
                     if ($s.ContainsKey('input_price')) { $mp_ip = [double]$s['input_price'] }
                     if ($s.ContainsKey('output_price')) { $mp_op = [double]$s['output_price'] }
+                }
                 $modelCost = ($g.input/1000000.0)*$mp_ip + ($g.output/1000000.0)*$mp_op + ($g.cw/1000000.0)*$mp_cwp + ($g.cr/1000000.0)*$mp_crp
                 $scanTotalCost += $modelCost
             }
