@@ -211,6 +211,7 @@ elif [ "$is_new_session" -eq 1 ]; then
     ses_in=$cur_in; ses_out=$cur_out; ses_cw=$cur_cw; ses_cr=$cur_cr
     # New session: snapshot duration_ms as baseline, ses_dur starts from 0
     ses_dur_baseline=$duration_ms
+    cum_dur=$((cum_dur + duration_ms))
 else
     last_in=$(echo "$proj_state" | jq -r '.last_input // 0')
     last_out=$(echo "$proj_state" | jq -r '.last_output // 0')

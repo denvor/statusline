@@ -197,6 +197,7 @@ if ($isNewProject) {
     $sesIn = $curIn; $sesOut = $curOut; $sesCW = $curCW; $sesCR = $curCR
     # New session: snapshot duration_ms as baseline, ses_dur starts from 0
     $sesDurBaseline = $durationMs
+    $cumDur += $durationMs
 } else {
     # Same session — check for duplicate (debounce)
     $lastIn  = if ($projState.last_input)  { [int]$projState.last_input }  else { 0 }
