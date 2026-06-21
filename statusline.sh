@@ -24,7 +24,7 @@ if ! echo "$raw_json" | jq empty 2>/dev/null; then
 fi
 
 # ── 2. Extract fields with jq (single call, 1 fork vs 19) ────────────
-IFS=$'\t' read -r project_name model_raw context_pct context_size \
+IFS=$'\x1f' read -r project_name model_raw context_pct context_size \
     input_tokens output_tokens \
     cur_in cur_out cur_cw cur_cr session_id duration_ms cc_cost \
     is_worktree repo_host_raw project_dir effort_level thinking_enabled \
@@ -50,14 +50,15 @@ IFS=$'\t' read -r project_name model_raw context_pct context_size \
         (.thinking.enabled // false),
         (.workspace.project_dir // .cwd // "unknown")
     ]
-    | @tsv')
+    | join("")')
 [ -z "$project_name" ] && project_name="..."
 [ -z "$project_key" ] && project_key="unknown"
 
 # Strip [1m] / [1M] context suffix added by third-party API providers
-model_clean=$(echo "$model_raw" | sed -E 's/\s*\[1[mi]\]$//')
+model_clean=$(echo "$model_raw" | sed -E 's/\s*\[1[mM]\]$//')
 
 # Git repo host suffix strip
+repo_host=""
 if [ -n "$repo_host_raw" ]; then
     repo_host=$(echo "$repo_host_raw" | sed 's/\.com$//;s/\.org$//')
 fi
