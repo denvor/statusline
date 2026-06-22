@@ -1,15 +1,14 @@
 #!/usr/bin/env bash
-# Install Claude Code statusline for Mac / Linux
-# Run from the repo root: bash install.sh
-# Copies statusline.sh + statusline.ini to ~/.claude/statusline/
-# Migrates existing statusline_state_*.json files from ~/.claude/ to subdirectory
+# Install statusline — simplified stdin-only statusline for Linux / macOS
+# Run: bash install.sh
+# Copies statusline.sh to ~/.claude/statusline/ and updates settings.json
 set -euo pipefail
 
-TARGET_DIR="${1:-$HOME/.claude/statusline}"
+TARGET_DIR="${HOME}/.claude/statusline"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # -------------------------------------------
-# Step 1: Copy files
+# Step 1: Copy statusline.sh
 # -------------------------------------------
 if [[ ! -d "$TARGET_DIR" ]]; then
     mkdir -p "$TARGET_DIR"
@@ -19,24 +18,24 @@ fi
 echo
 echo "--- Installing to $TARGET_DIR ---"
 
-FILES=("statusline.sh" "statusline.ini")
+if [[ -f "${SCRIPT_DIR}/statusline.sh" ]]; then
+    cp "${SCRIPT_DIR}/statusline.sh" "$TARGET_DIR/"
+    chmod +x "${TARGET_DIR}/statusline.sh"
+    echo "  OK: statusline.sh"
+else
+    echo "  ERROR: statusline.sh not found in repo!"
+    exit 1
+fi
 
-for f in "${FILES[@]}"; do
-    if [[ -f "${SCRIPT_DIR}/${f}" ]]; then
-        # Back up existing ini before overwriting
-        if [[ "$f" == "statusline.ini" && -f "$TARGET_DIR/$f" ]]; then
-            cp "$TARGET_DIR/$f" "$TARGET_DIR/statusline.ini.bak"
-            echo "  BACKUP: statusline.ini → statusline.ini.bak"
-        fi
-        cp "${SCRIPT_DIR}/${f}" "$TARGET_DIR"
-        echo "  OK: $f"
-    else
-        echo "  WARN: $f not found in repo — skipping"
-    fi
-done
-
-chmod +x "${TARGET_DIR}/statusline.sh" 2>/dev/null || true
-echo "  +x: statusline.sh"
+# statusline.ini is shared with slineplus — skip if already exists
+if [[ -f "$TARGET_DIR/statusline.ini" ]]; then
+    echo "  SKIP: statusline.ini (already exists)"
+elif [[ -f "${SCRIPT_DIR}/statusline.ini" ]]; then
+    cp "${SCRIPT_DIR}/statusline.ini" "$TARGET_DIR/"
+    echo "  OK: statusline.ini"
+else
+    echo "  WARN: statusline.ini not found — statusline will use defaults"
+fi
 
 # -------------------------------------------
 # Step 2: Configure settings.json
@@ -47,54 +46,20 @@ echo
 echo "--- Configuring settings.json ---"
 
 if [[ -f "$SETTINGS_PATH" ]]; then
-    # Remove old statusLine (if any) and add the new one in one jq pass
-    # Use --arg to keep $HOME literal (Claude Code expands it at runtime)
     new_settings=$(jq --arg cmd '$HOME/.claude/statusline/statusline.sh' \
         'del(.statusLine) | .statusLine = {"type":"command","command":$cmd,"padding":0}' \
         "$SETTINGS_PATH" 2>/dev/null) || true
     if [[ -n "$new_settings" ]]; then
         echo "$new_settings" > "$SETTINGS_PATH"
-        echo "  Updated statusLine entry in: $SETTINGS_PATH"
+        echo "  Updated statusLine entry → statusline.sh"
     else
         echo "  WARN: Failed to update settings.json"
     fi
 else
-    # Create new settings.json with just statusLine
     jq -n --arg cmd '$HOME/.claude/statusline/statusline.sh' \
         '{"statusLine":{"type":"command","command":$cmd,"padding":0}}' > "$SETTINGS_PATH"
     echo "  Created: $SETTINGS_PATH"
 fi
 
-# -------------------------------------------
-# Step 3: Migrate state files to subdirectory
-# -------------------------------------------
-OLD_DIR="$HOME/.claude"
-count=0
-found=0
-
-for f in "$OLD_DIR"/statusline_state_*.json; do
-    # Skip if glob didn't match
-    [ -f "$f" ] || continue
-    found=1
-    basename_f=$(basename "$f")
-    dest="${TARGET_DIR}/${basename_f}"
-
-    if [[ -f "$dest" ]]; then
-        echo "  SKIP (already exists): $basename_f"
-    else
-        cp "$f" "$dest"
-        echo "  OK: $basename_f"
-        count=$((count + 1))
-    fi
-done
-
-if [[ "$found" -eq 0 ]]; then
-    echo
-    echo "No state files to migrate."
-else
-    echo
-    echo "Migrated $count state file(s)."
-fi
-
 echo
-echo "Install complete!"
+echo "Install complete! Restart Claude Code to see statusline."

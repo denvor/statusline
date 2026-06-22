@@ -1,7 +1,6 @@
-# Install Claude Code statusline for Windows (PowerShell)
-# Run from the repo root: powershell -File install.ps1
-# Copies statusline.ps1 + statusline.ini to ~/.claude/statusline/
-# Migrates existing statusline_state_*.json files from ~/.claude/ to subdirectory
+# Install statusline — simplified stdin-only statusline for Windows (PowerShell)
+# Run: powershell -File install.ps1
+# Copies statusline.ps1 to ~/.claude/statusline/ and updates settings.json
 param(
     [string]$TargetDir = ''
 )
@@ -13,35 +12,41 @@ if (-not $TargetDir) {
 $scriptRoot = Split-Path -Parent $MyInvocation.MyCommand.Definition
 
 # -------------------------------------------
-# Step 1: Copy files
+# Step 1: Copy statusline.ps1
 # -------------------------------------------
 if (-not (Test-Path $TargetDir)) {
     New-Item -ItemType Directory -Path $TargetDir -Force | Out-Null
     Write-Host "Created: $TargetDir"
 }
 
-$files = @(
-    @{Name="statusline.ps1"; From=Join-Path $scriptRoot 'statusline.ps1'},
-    @{Name="statusline.ini"; From=Join-Path $scriptRoot 'statusline.ini'}
-)
-
 Write-Host "`n--- Installing to $TargetDir ---"
-foreach ($f in $files) {
-    if (Test-Path $f.From) {
-        # Back up existing ini before overwriting
-        $dest = Join-Path $TargetDir $f.Name
-        if ($f.Name -eq 'statusline.ini' -and (Test-Path $dest)) {
-            $backup = Join-Path $TargetDir 'statusline.ini.bak'
-            Copy-Item -Path $dest -Destination $backup -Force
-            Write-Host "  BACKUP: statusline.ini → statusline.ini.bak"
-        }
-        Copy-Item -Path $f.From -Destination $TargetDir -Force
-        Write-Host "  OK: $($f.Name)"
+
+$source = Join-Path $scriptRoot 'statusline.ps1'
+if (Test-Path $source) {
+    Copy-Item -Path $source -Destination $TargetDir -Force
+    Write-Host "  OK: statusline.ps1"
+} else {
+    Write-Host "  ERROR: statusline.ps1 not found in repo!"
+    exit 1
+}
+
+# statusline.ini is shared with slineplus
+$iniDest = Join-Path $TargetDir 'statusline.ini'
+if (Test-Path $iniDest) {
+    Write-Host "  SKIP: statusline.ini (already exists)"
+} else {
+    $iniSource = Join-Path $scriptRoot 'statusline.ini'
+    if (Test-Path $iniSource) {
+        Copy-Item -Path $iniSource -Destination $TargetDir -Force
+        Write-Host "  OK: statusline.ini"
     } else {
-        Write-Host "  WARN: $($f.Name) not found in repo — skipping"
+        Write-Host "  WARN: statusline.ini not found — statusline will use defaults"
     }
 }
 
+# -------------------------------------------
+# Step 2: Configure settings.json
+# -------------------------------------------
 Write-Host "`n--- Configuring settings.json ---"
 $settingsDir = Split-Path $TargetDir -Parent  # ~/.claude/
 $settingsPath = Join-Path $settingsDir 'settings.json'
@@ -70,30 +75,6 @@ if ($settings.ContainsKey('statusLine')) {
 $settings['statusLine'] = $newStatusLine
 
 $settings | ConvertTo-Json -Depth 5 | Out-File -FilePath $settingsPath -Encoding UTF8
-Write-Host "  Added statusLine entry to: $settingsPath"
+Write-Host "  Added statusLine entry → statusline.ps1"
 
-# -------------------------------------------
-# Step 2: Migrate state files to subdirectory
-# -------------------------------------------
-$oldDir = Split-Path $TargetDir -Parent  # ~/.claude/
-$stateFiles = Get-ChildItem -Path $oldDir -Filter 'statusline_state_*.json' -File
-
-if (-not $stateFiles) {
-    Write-Host "`nNo state files to migrate."
-} else {
-    Write-Host "`n--- Migrating state files to $TargetDir ---"
-    $count = 0
-    foreach ($f in $stateFiles) {
-        $dest = Join-Path $TargetDir $f.Name
-        if (Test-Path $dest) {
-            Write-Host "  SKIP (already exists): $($f.Name)"
-        } else {
-            Copy-Item -Path $f.FullName -Destination $dest -Force
-            Write-Host "  OK: $($f.Name)"
-            $count++
-        }
-    }
-    Write-Host "Migrated $count state file(s)."
-}
-
-Write-Host "`nInstall complete!"
+Write-Host "`nInstall complete! Restart Claude Code to see statusline."

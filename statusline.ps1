@@ -1,5 +1,5 @@
-﻿# Claude Code Status Line (PowerShell)
-# Displays: project name | model name | context usage bar | cost
+# statusline — Simplified stdin-only statusline (PowerShell)
+# Displays: project name | model | context usage bar | session time | session cost
 param()
 
 [Console]::InputEncoding  = [System.Text.Encoding]::UTF8
@@ -41,10 +41,10 @@ if ([string]::IsNullOrWhiteSpace($projectName) -and $data.workspace.repo.name) {
 }
 if ([string]::IsNullOrWhiteSpace($projectName)) { $projectName = '...' }
 
-# Model name - beautify common model IDs
+# Model name
 $modelRaw = if ($data.model.display_name) { $data.model.display_name } else { 'Unknown' }
-# Strip [1m] / [1M] context suffix added by third-party API providers
-$modelClean = $modelRaw -replace '\s*\[1[mi]\]$', ''
+# Strip [1m] / [1M] context suffix
+$modelClean = $modelRaw -replace '\s*\[1[mM]\]$', ''
 $modelDisplay = switch -Regex ($modelClean) {
     '^deepseek-v4-pro$'   { 'DeepSeek V4 Pro'; break }
     '^deepseek-v4-flash$' { 'DeepSeek V4 Flash'; break }
@@ -69,18 +69,45 @@ $contextSize = 200000
 if ($data.context_window.context_window_size) {
     $contextSize = [int]$data.context_window.context_window_size
 }
+
+# Session cumulative tokens (for cost calculation)
 $inputTokens  = if ($data.context_window.total_input_tokens)  { [int]$data.context_window.total_input_tokens }  else { 0 }
 $outputTokens = if ($data.context_window.total_output_tokens) { [int]$data.context_window.total_output_tokens } else { 0 }
 
-# =====================================================================
-# Custom pricing from statusline.ini + token accumulation
-# =====================================================================
+# Current message tokens (for call: display and cache approximation)
+$curIn  = if ($data.context_window.current_usage.input_tokens)              { [int]$data.context_window.current_usage.input_tokens }              else { 0 }
+$curOut = if ($data.context_window.current_usage.output_tokens)             { [int]$data.context_window.current_usage.output_tokens }             else { 0 }
+$curCW  = if ($data.context_window.current_usage.cache_creation_input_tokens) { [int]$data.context_window.current_usage.cache_creation_input_tokens } else { 0 }
+$curCR  = if ($data.context_window.current_usage.cache_read_input_tokens)      { [int]$data.context_window.current_usage.cache_read_input_tokens }      else { 0 }
 
+# Session time
+$durationMs = if ($data.cost.total_duration_ms) { [int64]$data.cost.total_duration_ms } else { 0 }
+
+# Git branch
+$gitBranch = ''
+$projectDir = if ($data.workspace.project_dir) { $data.workspace.project_dir } else { $data.cwd }
+if ($projectDir) {
+    try {
+        Push-Location $projectDir
+        $branch = git branch --show-current 2>$null
+        if ($branch) { $gitBranch = $branch.Trim() }
+    } catch {}
+    finally { Pop-Location }
+}
+
+# Effort & thinking
+$effortLevel   = if ($data.effort.level)   { $data.effort.level }   else { '' }
+$thinkingEnabled = if ($data.thinking.enabled) { $data.thinking.enabled } else { $false }
+
+# Worktree
+$isWorktree = $false
+if (($data.worktree.name) -or ($data.workspace.git_worktree)) { $isWorktree = $true }
+
+# 4. Read INI pricing
 $scriptDir = if ($env:USERPROFILE) { $env:USERPROFILE } else { "$env:HOMEDRIVE$env:HOMEPATH" }
 $statuslineDir = Join-Path $scriptDir '.claude/statusline'
-$iniPath   = Join-Path $statuslineDir 'statusline.ini'
+$iniPath = Join-Path $statuslineDir 'statusline.ini'
 
-# Default pricing (DeepSeek V4, CNY) — used if INI is missing or invalid
 $pricing = @{
     input_price       = 2.00
     output_price      = 8.00
@@ -89,10 +116,8 @@ $pricing = @{
     currency          = 'CNY'
 }
 
-# Try to read INI file (section-based: [model_name] -> pricing, [display] -> order)
 $iniSections = @{}
 $orderFromIni = $null
-$jsonlSyncInterval = 10   # 默认每 N 次触发扫描一次 JSONL（subagent 统计）
 if (Test-Path $iniPath) {
     try {
         $currentSection = ''
@@ -115,8 +140,6 @@ if (Test-Path $iniPath) {
                     $iniSections[$currentSection]['currency'] = $val.ToUpper()
                 } elseif ($currentSection -eq 'display' -and $key -eq 'order') {
                     $orderFromIni = $val
-                } elseif ($currentSection -eq 'jsonl' -and $key -eq 'sync_interval') {
-                    $jsonlSyncInterval = [int]$val
                 }
             }
         }
@@ -137,397 +160,122 @@ if ($iniSections.ContainsKey($matchedSection)) {
 # Currency symbol
 $currencySymbol = if ($pricing['currency'] -eq 'CNY') { [char]0xA5 } else { '$' }
 
-# --- Token accumulation with dedup ---
-$curIn  = if ($data.context_window.current_usage.input_tokens)              { [int]$data.context_window.current_usage.input_tokens }              else { 0 }
-$curOut = if ($data.context_window.current_usage.output_tokens)             { [int]$data.context_window.current_usage.output_tokens }             else { 0 }
-$curCW  = if ($data.context_window.current_usage.cache_creation_input_tokens) { [int]$data.context_window.current_usage.cache_creation_input_tokens } else { 0 }
-$curCR  = if ($data.context_window.current_usage.cache_read_input_tokens)      { [int]$data.context_window.current_usage.cache_read_input_tokens }      else { 0 }
-$sessionId = if ($data.session_id) { $data.session_id } else { 'unknown' }
-$durationMs = if ($data.cost.total_duration_ms) { [int64]$data.cost.total_duration_ms } else { 0 }
+# 5. Session cost (computed from session cumulative tokens × INI prices)
+# inputTokens/outputTokens = session cumulative; curCW/curCR = per-message approximation
+$sessionCost = [math]::Round(
+    ($inputTokens  / 1000000.0) * $pricing['input_price'] +
+    ($outputTokens / 1000000.0) * $pricing['output_price'] +
+    ($curCW       / 1000000.0) * $pricing['cache_write_price'] +
+    ($curCR       / 1000000.0) * $pricing['cache_read_price'],
+    6)
 
-# Project key for per-project tracking
-$projectKey = if ($data.workspace.project_dir) { $data.workspace.project_dir } else { $data.cwd }
-if (-not $projectKey) { $projectKey = 'unknown' }
-$stateFile = 'statusline_state_' + ($projectKey -replace '[:\\/]', '_') + '.json'
-$statePath = Join-Path $statuslineDir $stateFile
-
-$cumIn = 0; $cumOut = 0; $cumCW = 0; $cumCR = 0
-$sesIn = 0; $sesOut = 0; $sesCW = 0; $sesCR = 0
-$projState = $null
-if (Test-Path $statePath) {
-    try {
-        $rawState = [System.IO.File]::ReadAllText($statePath, [System.Text.UTF8Encoding]::new($false))
-        $projState = $rawState | ConvertFrom-Json
-    } catch {}
-}
-
-# Load cached JSONL scan results from state (persist across invocations)
-$jsonlInput  = if ($projState.jsonl_input)  { [int]$projState.jsonl_input }  else { 0 }
-$jsonlOutput = if ($projState.jsonl_output) { [int]$projState.jsonl_output } else { 0 }
-$jsonlCW     = if ($projState.jsonl_cache_write) { [int]$projState.jsonl_cache_write } else { 0 }
-$jsonlCR     = if ($projState.jsonl_cache_read)  { [int]$projState.jsonl_cache_read }  else { 0 }
-$jsonlScanCount = if ($projState.jsonl_scan_count) { [int]$projState.jsonl_scan_count } else { 0 }
-$jsonlEverScanned    = if ($projState.jsonl_ever_scanned) { $true } else { $false }
-
-$sesDur = if ($projState.session_duration_ms) { [int64]$projState.session_duration_ms } else { 0 }
-$sesDurBaseline = if ($projState.session_duration_baseline) { [int64]$projState.session_duration_baseline } else { 0 }
-$cumDur = if ($projState.cumulative_duration_ms) { [int64]$projState.cumulative_duration_ms } else { 0 }
-
-# Per-model cost tracking
-$sessionCostStored    = if ($projState.session_cost_stored)    { [double]$projState.session_cost_stored }    else { 0.0 }
-$cumulativeCostStored = if ($projState.cumulative_cost_stored) { [double]$projState.cumulative_cost_stored } else { 0.0 }
-$jsonlTotalCostStored = if ($projState.jsonl_total_cost_stored) { [double]$projState.jsonl_total_cost_stored } else { 0.0 }
-$jsonlTotalCostBaseline = if ($projState.jsonl_total_cost_baseline) { [double]$projState.jsonl_total_cost_baseline } else { 0.0 }
-
-$isNewProject = (-not $projState)
-
-# Check if session changed or new (per-project)
-# Guard: if incoming session_id is "unknown" (compact), trust stored session_id
-$isNewSession = $isNewProject -or (($sessionId -ne 'unknown') -and ($projState.session_id -ne $sessionId))
-
-if ($isNewProject) {
-    # Brand new project — start from scratch
-    $cumIn = $curIn; $cumOut = $curOut; $cumCW = $curCW; $cumCR = $curCR
-    $sesIn = $curIn; $sesOut = $curOut; $sesCW = $curCW; $sesCR = $curCR
-    $sesDurBaseline = $durationMs; $cumDur = $durationMs
-    $msgCost = ($curIn/1000000.0)*$pricing['input_price'] + ($curOut/1000000.0)*$pricing['output_price'] + ($curCW/1000000.0)*$pricing['cache_write_price'] + ($curCR/1000000.0)*$pricing['cache_read_price']
-    $sessionCostStored = $msgCost; $cumulativeCostStored = $msgCost
-} elseif ($isNewSession) {
-    # Same project, new session: session reset, cumulative preserved
-    $cumIn  = [int]$projState.cumulative_input  + $curIn
-    $cumOut = [int]$projState.cumulative_output + $curOut
-    $cumCW  = [int]$projState.cumulative_cache_write + $curCW
-    $cumCR  = [int]$projState.cumulative_cache_read  + $curCR
-    $sesIn = $curIn; $sesOut = $curOut; $sesCW = $curCW; $sesCR = $curCR
-    # New session: snapshot duration_ms as baseline, ses_dur starts from 0
-    $sesDurBaseline = $durationMs
-    $cumDur += $durationMs
-    $msgCost = ($curIn/1000000.0)*$pricing['input_price'] + ($curOut/1000000.0)*$pricing['output_price'] + ($curCW/1000000.0)*$pricing['cache_write_price'] + ($curCR/1000000.0)*$pricing['cache_read_price']
-    $sessionCostStored = $msgCost
-} else {
-    # Same session — check for duplicate (debounce)
-    $lastIn  = if ($projState.last_input)  { [int]$projState.last_input }  else { 0 }
-    $lastOut = if ($projState.last_output) { [int]$projState.last_output } else { 0 }
-    $lastCW  = if ($projState.last_cache_write) { [int]$projState.last_cache_write } else { 0 }
-    $lastCR  = if ($projState.last_cache_read)  { [int]$projState.last_cache_read }  else { 0 }
-
-    $isDuplicate = ($curIn -eq $lastIn) -and ($curOut -eq $lastOut) -and
-                   ($curCW -eq $lastCW) -and ($curCR -eq $lastCR)
-
-    $cumIn  = if ($projState.cumulative_input)  { [int]$projState.cumulative_input }  else { 0 }
-    $cumOut = if ($projState.cumulative_output) { [int]$projState.cumulative_output } else { 0 }
-    $cumCW  = if ($projState.cumulative_cache_write) { [int]$projState.cumulative_cache_write } else { 0 }
-    $cumCR  = if ($projState.cumulative_cache_read)  { [int]$projState.cumulative_cache_read }  else { 0 }
-    $sesIn  = if ($projState.session_input)  { [int]$projState.session_input }  else { 0 }
-    $sesOut = if ($projState.session_output) { [int]$projState.session_output } else { 0 }
-    $sesCW  = if ($projState.session_cache_write) { [int]$projState.session_cache_write } else { 0 }
-    $sesCR  = if ($projState.session_cache_read)  { [int]$projState.session_cache_read }  else { 0 }
-    $sesDur = if ($projState.session_duration_ms) { [int64]$projState.session_duration_ms } else { 0 }
-    $cumDur = if ($projState.cumulative_duration_ms) { [int64]$projState.cumulative_duration_ms } else { 0 }
-
-    if (-not $isDuplicate -and ($curIn + $curOut + $curCW + $curCR) -gt 0) {
-        $cumIn  += $curIn;  $cumOut += $curOut;  $cumCW  += $curCW;  $cumCR  += $curCR
-        $sesIn  += $curIn;  $sesOut += $curOut;  $sesCW  += $curCW;  $sesCR  += $curCR
-        # Incremental cost using current model's prices
-        $msgCost = ($curIn/1000000.0)*$pricing['input_price'] + ($curOut/1000000.0)*$pricing['output_price'] + ($curCW/1000000.0)*$pricing['cache_write_price'] + ($curCR/1000000.0)*$pricing['cache_read_price']
-        $sessionCostStored += $msgCost; $cumulativeCostStored += $msgCost
-        # durationMs is session-cumulative: add only the delta since last recording
-        $oldRawDur = $sesDurBaseline + $sesDur
-        $durDelta = $durationMs - $oldRawDur
-        if ($durDelta -lt 0) {
-            $durDelta = $durationMs
-        } elseif ($durDelta -gt 300000) {
-            # Gap > 5 min: likely session restart, reset baseline and skip gap
-            $sesDurBaseline = $durationMs
-            $durDelta = 0
-        }
-        $cumDur += $durDelta
-    }
-}
-
-# ses_dur = duration_ms - baseline (0 at session start, grows during session)
-$sesDur = $durationMs - $sesDurBaseline
-if ($sesDur -lt 0) {
-    $sesDur = 0
-} elseif ($sesDurBaseline -eq 0 -and $sesDur -gt 0 -and -not $isNewProject) {
-    # Migration: old state file had no baseline field (null → 0).
-    # sesDur loaded from state was the raw duration_ms from before the fix.
-    # Reset baseline to current duration_ms so sesDur starts fresh.
-    $sesDurBaseline = $durationMs
-    $sesDur = 0
-}
-
-# Migration: seed stored costs from old state that lacked them
-if (-not $isNewProject -and $sessionCostStored -eq 0.0 -and $cumulativeInput -gt 0 -and $cumulativeOutput -gt 0) {
-    $sessionCostStored    = ($sesIn/1000000.0)*$pricing['input_price'] + ($sesOut/1000000.0)*$pricing['output_price'] + ($sesCW/1000000.0)*$pricing['cache_write_price'] + ($sesCR/1000000.0)*$pricing['cache_read_price']
-    $cumulativeCostStored = ($cumIn/1000000.0)*$pricing['input_price'] + ($cumOut/1000000.0)*$pricing['output_price'] + ($cumCW/1000000.0)*$pricing['cache_write_price'] + ($cumCR/1000000.0)*$pricing['cache_read_price']
-}
-
-# New session: snapshot JSONL total cost as baseline for per-session subagent tracking
-if ($isNewSession -and -not $isNewProject) {
-    $jsonlTotalCostBaseline = $jsonlTotalCostStored
-}
-
-# --- Periodic JSONL scan for subagent cost ---
-$jsonlScanCount++
-if ($jsonlSyncInterval -gt 0 -and $jsonlScanCount -ge $jsonlSyncInterval) {
-    $jsonlScanCount = 0
-    try {
-        $projectsDir = Join-Path (Join-Path $scriptDir '.claude') 'projects'
-        $sessionDirName = $projectKey -replace '[:\\/]', '-'
-        $targetDir = Join-Path $projectsDir $sessionDirName
-        if (Test-Path $targetDir) {
-            $jsonlTotalInput = 0; $jsonlTotalOutput = 0; $jsonlTotalCW = 0; $jsonlTotalCR = 0
-            $modelGroups = @{}  # model_name → @{input=0, output=0, cw=0, cr=0}
-            $jsseen = @{}
-            Get-ChildItem $targetDir -Recurse -Filter *.jsonl -ErrorAction SilentlyContinue | ForEach-Object {
-                try {
-                    Get-Content $_.FullName -Encoding UTF8 -ErrorAction SilentlyContinue | ForEach-Object {
-                        $line = $_.Trim()
-                        if (-not $line) { return }
-                        try { $jsdata = $line | ConvertFrom-Json } catch { return }
-                        if ($jsdata.type -ne 'assistant') { return }
-                        $jsmsg = $jsdata.message
-                        if (-not $jsmsg) { return }
-                        $jsusage = $jsmsg.usage
-                        if (-not $jsusage) { return }
-                        $ji = if ($null -ne $jsusage.input_tokens) { [int]$jsusage.input_tokens } else { 0 }
-                        $jo = if ($null -ne $jsusage.output_tokens) { [int]$jsusage.output_tokens } else { 0 }
-                        $jcw_local = if ($null -ne $jsusage.cache_creation_input_tokens) { [int]$jsusage.cache_creation_input_tokens } else { 0 }
-                        $jcr_local = if ($null -ne $jsusage.cache_read_input_tokens) { [int]$jsusage.cache_read_input_tokens } else { 0 }
-                        if ($ji -eq 0 -and $jo -eq 0 -and $jcw_local -eq 0 -and $jcr_local -eq 0) { return }
-                        $jssig = "$($jsdata.timestamp)|$ji|$jo"
-                        if ($jsseen.ContainsKey($jssig)) { return }
-                        $jsseen[$jssig] = $true
-                        $model = if ($jsdata.message.model) { $jsdata.message.model } else { 'unknown' }
-                        if (-not $modelGroups.ContainsKey($model)) { $modelGroups[$model] = @{input=0; output=0; cw=0; cr=0} }
-                        $modelGroups[$model].input += $ji
-                        $modelGroups[$model].output += $jo
-                        $modelGroups[$model].cw += $jcw_local
-                        $modelGroups[$model].cr += $jcr_local
-                    }
-                } catch { }
-            }
-            # Compute per-model cost using INI pricing
-            $scanTotalCost = 0.0
-            foreach ($mod in $modelGroups.Keys) {
-                $g = $modelGroups[$mod]
-                $mp_ip = 2.00; $mp_op = 8.00; $mp_cwp = 2.00; $mp_crp = 0.50
-                # Look up model pricing from INI
-                if ($iniSections.ContainsKey($mod)) {
-                    $s = $iniSections[$mod]
-                    if ($s.ContainsKey('input_price')) { $mp_ip = [double]$s['input_price'] }
-                    if ($s.ContainsKey('output_price')) { $mp_op = [double]$s['output_price'] }
-                    if ($s.ContainsKey('cache_write_price')) { $mp_cwp = [double]$s['cache_write_price'] }
-                    if ($s.ContainsKey('cache_read_price')) { $mp_crp = [double]$s['cache_read_price'] }
-                } elseif ($iniSections.ContainsKey('default')) {
-                    $s = $iniSections['default']
-                    if ($s.ContainsKey('input_price')) { $mp_ip = [double]$s['input_price'] }
-                    if ($s.ContainsKey('output_price')) { $mp_op = [double]$s['output_price'] }
-                }
-                $modelCost = ($g.input/1000000.0)*$mp_ip + ($g.output/1000000.0)*$mp_op + ($g.cw/1000000.0)*$mp_cwp + ($g.cr/1000000.0)*$mp_crp
-                $scanTotalCost += $modelCost
-            }
-            # Update stored cost (monotonic)
-            if ($scanTotalCost -ge $jsonlTotalCostStored) {
-                $jsonlTotalCostStored = $scanTotalCost
-            }
-        }
-        $jsonlEverScanned = $true
-    } catch { }
-}
-
-# Save state (single project per file)
-try {
-    # Ensure statusline directory exists
-    New-Item -ItemType Directory -Path $statuslineDir -Force | Out-Null
-    $newState = @{
-        session_id             = $sessionId
-        session_input          = $sesIn
-        session_output         = $sesOut
-        session_cache_write    = $sesCW
-        session_cache_read     = $sesCR
-        cumulative_input       = $cumIn
-        cumulative_output      = $cumOut
-        cumulative_cache_write = $cumCW
-        cumulative_cache_read  = $cumCR
-        last_input             = $curIn
-        last_output            = $curOut
-        last_cache_write       = $curCW
-        last_cache_read        = $curCR
-        jsonl_input            = $jsonlInput
-        jsonl_output           = $jsonlOutput
-        jsonl_cache_write      = $jsonlCW
-        jsonl_cache_read       = $jsonlCR
-        jsonl_scan_count         = $jsonlScanCount
-        jsonl_ever_scanned       = $jsonlEverScanned
-        session_duration_ms      = $sesDur
-        session_duration_baseline = $sesDurBaseline
-        cumulative_duration_ms   = $cumDur
-        session_cost_stored      = $sessionCostStored
-        cumulative_cost_stored   = $cumulativeCostStored
-        jsonl_total_cost_stored  = $jsonlTotalCostStored
-        jsonl_total_cost_baseline = $jsonlTotalCostBaseline
-    } | ConvertTo-Json -Depth 5
-    [System.IO.File]::WriteAllText($statePath, $newState, [System.Text.UTF8Encoding]::new($false))
-} catch {}
-
-# --- Use stored costs (computed per-message at model's prices) ---
-$sessionCost    = $sessionCostStored
-$cumulativeCost = $cumulativeCostStored
-
-# Session duration
+# 6. Duration formatting
 function Format-Duration($ms) {
-    if ($null -eq $ms -or $ms -eq 0) { return '' }
-    $totalSec = [math]::Floor([int64]$ms / 1000)
+    if (-not $ms -or $ms -eq 0) { return '' }
+    $totalSec = [int]($ms / 1000)
     if ($totalSec -lt 60) { return "${totalSec}s" }
-    $min = [math]::Floor($totalSec / 60)
+    $min = [int]($totalSec / 60)
     if ($min -lt 60) { return "${min}m" }
-    $hr = [math]::Floor($min / 60)
-    return "${hr}h$($min % 60)m"
+    $hr  = [int]($min / 60)
+    $rem = $min % 60
+    return "${hr}h${rem}m"
 }
-$sesDurStr = Format-Duration $sesDur
-$cumDurStr = Format-Duration $cumDur
-$durationStr = if ($sesDurStr -and $cumDurStr) { "${sesDurStr} / ${cumDurStr}" } elseif ($sesDurStr) { $sesDurStr } else { '' }
+$durationStr = Format-Duration $durationMs
 
-# Worktree?
-$isWorktree = ($data.worktree.name -or $data.workspace.git_worktree)
-
-# Git branch
-$gitBranch = ''
-$repoHost  = ''
-if ($data.workspace.repo.host) {
-    $repoHost = $data.workspace.repo.host -replace '\.com$', '' -replace '\.org$', ''
-}
-try {
-    $projectDir = if ($data.workspace.project_dir) { $data.workspace.project_dir } else { $data.cwd }
-    if ($projectDir) {
-        $branch = git -C $projectDir branch --show-current 2>$null
-        if ($branch) { $gitBranch = $branch.Trim() }
-    }
-} catch {}
-
-# Effort level icon
-$effortIcon = ''
-if ($data.effort.level) {
-    switch ($data.effort.level) {
-        'xhigh' { $effortIcon = 'X' }
-        'high'  { $effortIcon = 'H' }
-        'medium'{ $effortIcon = 'M' }
-        'low'   { $effortIcon = 'L' }
-        'max'   { $effortIcon = '!' }
-    }
-}
-
-# Thinking mode
-$thinkingIcon = ''
-if ($data.thinking.enabled) { $thinkingIcon = 'T' }
-
-# 4. ANSI colors
-$e      = [char]27
-$rst    = "${e}[0m"
-$bold   = "${e}[1m"
-$dim    = "${e}[2m"
-$cyan   = "${e}[36m"
-$green  = "${e}[32m"
-$yellow = "${e}[33m"
-$red    = "${e}[31m"
-$blue   = "${e}[34m"
-$magenta= "${e}[35m"
-$bcyan  = "${e}[96m"
-$bgreen = "${e}[92m"
-$byellow= "${e}[93m"
-$bred   = "${e}[91m"
-$bblue  = "${e}[94m"
-$bmagenta = "${e}[95m"
-$bwhite = "${e}[97m"
-
-# 5. Progress bar (20 chars)
-$barWidth = 20
-$filled = [math]::Max(0, [math]::Floor($contextPct * $barWidth / 100))
-if ($contextPct -gt 0 -and $filled -eq 0) { $filled = 1 }
-$empty = $barWidth - $filled
-
-if ($contextPct -gt 75)       { $barColor = $bred }
-elseif ($contextPct -gt 50)   { $barColor = $byellow }
-else                          { $barColor = $bgreen }
-
-$barFilled = "=" * $filled
-$barEmpty  = "-" * $empty
-$bar = "${barColor}${barFilled}${dim}${barEmpty}${rst}"
-$pctStr = "$contextPct".PadLeft(3)
-
-# 6. Format numbers
+# 7. Number formatting
 function Format-Num($n) {
-    if ($n -ge 1000000) { return "$([math]::Round($n / 1000000, 1))M" }
-    if ($n -ge 1000)    { return "$([math]::Round($n / 1000, 1))K" }
-    return "$n"
+    if ($n -ge 1000000) {
+        $t = [int](($n * 10 + 500000) / 1000000)
+        return "$([int]($t/10)).$($t%10)M"
+    } elseif ($n -ge 1000) {
+        $t = [int](($n * 10 + 500) / 1000)
+        return "$([int]($t/10)).$($t%10)K"
+    } else { return $n.ToString() }
 }
+
 $inputStr  = Format-Num $inputTokens
 $outputStr = Format-Num $outputTokens
-# Per-call token display (for line 2)
-$callInStr  = Format-Num $curIn
+$callInStr = Format-Num $curIn
 $callOutStr = Format-Num $curOut
 $contextSizeStr = Format-Num $contextSize
 
-# JSONL cost from stored values (per-model priced in scan)
-$jsonlTotalCost   = [Math]::Max(0.0, $jsonlTotalCostStored)
-$jsonlSessionCost = [Math]::Max(0.0, $jsonlTotalCostStored - $jsonlTotalCostBaseline)
-$subSessionCost   = [Math]::Max(0.0, $jsonlSessionCost - $sessionCost)
-
-if ($jsonlEverScanned) {
-    # 已扫描过，显示完整三值：主会话 / subagent / 项目总（含sub）
-    $costThreshold = $jsonlTotalCost
-    $costStr = "${currencySymbol}$($sessionCost.ToString('F3')) / ${currencySymbol}$($subSessionCost.ToString('F3')) / ${currencySymbol}$($jsonlTotalCost.ToString('F3'))"
-} else {
-    # 尚未扫描，用旧两值格式
-    $costThreshold = [Math]::Max($cumulativeCost, $sessionCost)
-    $costStr = "${currencySymbol}$($sessionCost.ToString('F3'))/${currencySymbol}$($cumulativeCost.ToString('F3'))"
+# 8. Icons
+$effortIcon = switch ($effortLevel) {
+    'xhigh' { 'X' }; 'high' { 'H' }; 'medium' { 'M' }; 'low' { 'L' }; 'max' { '!' }
+    default { '' }
 }
-$costColor = if ($costThreshold -ge 1.0) { $bred } elseif ($costThreshold -ge 0.5) { $byellow } else { $bgreen }
+$thinkingIcon = if ($thinkingEnabled) { 'T' } else { '' }
+$projectIcon  = if ($isWorktree) { 'WT' } else { 'PR' }
 
-# 7. Build field map and order
+# 9. ANSI colors
+$e = [char]27
+$rst   = "${e}[0m"
+$bold  = "${e}[1m"
+$dim   = "${e}[2m"
+$cyan  = "${e}[36m"
+$green = "${e}[32m"
+$magenta   = "${e}[35m"
+$bcyan     = "${e}[96m"
+$bgreen    = "${e}[92m"
+$byellow   = "${e}[93m"
+$bred      = "${e}[91m"
+$bblue     = "${e}[94m"
+$bmagenta  = "${e}[95m"
+$bwhite    = "${e}[97m"
 
+# 10. Progress bar (20 chars)
+$barWidth = 20
+$filled = [math]::Min([math]::Max([int]($contextPct * $barWidth / 100), 0), $barWidth)
+if ($contextPct -gt 0 -and $filled -eq 0) { $filled = 1 }
+$empty = $barWidth - $filled
+
+if ($contextPct -gt 75) { $barColor = $bred }
+elseif ($contextPct -gt 50) { $barColor = $byellow }
+else { $barColor = $bgreen }
+
+$barFilled = if ($filled -gt 0) { ('=' * $filled) } else { '' }
+$barEmpty  = if ($empty -gt 0)  { ('-' * $empty) } else { '' }
+$bar = "${barColor}${barFilled}${dim}${barEmpty}${rst}"
+$pctStr = $contextPct.ToString().PadLeft(3)
+
+# 11. Cost color
+$costColor = if ($sessionCost -ge 1.0) { $bred }
+             elseif ($sessionCost -ge 0.5) { $byellow }
+             else { $bgreen }
+$costStr = "$currencySymbol$($sessionCost.ToString('0.000'))"
+
+# 12. Display order
 $displayOrder = @('project', 'model', 'thinking', 'effort', 'bar', 'ctx', 'call', 'git', 'time', 'cost')
-
-# Override from INI [display] section (captured during first INI parse above)
 if ($orderFromIni) {
-    $displayOrder = $orderFromIni -split '\s*,\s*' | ForEach-Object { $_.Trim() } | Where-Object { $_ }
+    $displayOrder = $orderFromIni.Split(',') | ForEach-Object { $_.Trim() }
 }
 
-$projectIcon = if ($isWorktree) { 'WT' } else { 'PR' }
-$fields = [ordered]@{}
-$fields['project']  = "${bold}${bcyan}[${projectIcon}] ${projectName}${rst}"
-$fields['model']    = "${bmagenta}${modelDisplay}${rst}"
+# Build field map
+$fields = @{}
+$fields['project'] = "${bold}${bcyan}[${projectIcon}] ${projectName}${rst}"
+$fields['model']   = "${bmagenta}${modelDisplay}${rst}"
 $fields['thinking'] = if ($thinkingIcon) { "${bcyan}${thinkingIcon}${rst}" } else { '' }
-$fields['effort']   = if ($effortIcon)   { "${yellow}${effortIcon}${rst}" }      else { '' }
-$fields['bar']      = "${bar} ${bold}${barColor}${pctStr}%${rst}"
-$fields['ctx']      = "ctx: ${bwhite}${inputStr}/${outputStr}${rst} ${dim}/${bold}${barColor}${contextSizeStr}${rst}"
-$fields['call']     = "call: ${bwhite}i${rst}${bwhite}${callInStr}${rst} ${bwhite}o${rst}${bwhite}${callOutStr}${rst}"
+$fields['effort']  = if ($effortIcon)   { "${byellow}${effortIcon}${rst}" } else { '' }
+$fields['bar']     = "${bar} ${bold}${barColor}${pctStr}%${rst}"
+$fields['ctx']     = "ctx: ${bwhite}${inputStr}/${outputStr}${rst} ${dim}/${bold}${barColor}${contextSizeStr}${rst}"
+$fields['call']    = "call: ${bwhite}i${rst}${bwhite}${callInStr}${rst} ${bwhite}o${rst}${bwhite}${callOutStr}${rst}"
 
 $gitField = ''
 if ($gitBranch) {
     $gitField = "${cyan}git:${gitBranch}${rst}"
-    if ($repoHost) { $gitField += " ${dim}@${repoHost}${rst}" }
 }
 $fields['git'] = $gitField
 
 $fields['time'] = if ($durationStr) { "${bblue}time ${rst}${durationStr}" } else { '' }
 $fields['cost'] = "${bold}${costColor}${costStr}${rst}"
 
-$lineParts = foreach ($key in $displayOrder) {
-    if ($fields.Contains($key) -and $fields[$key]) {
-        $fields[$key]
-    }
+# Build line
+$parts = @()
+$sep = " ${dim}|${rst} "
+foreach ($key in $displayOrder) {
+    $val = $fields[$key]
+    if ($val) { $parts += $val }
 }
-$line = $lineParts -join " ${dim}|${rst} "
+$line = $parts -join $sep
 
-# 8. Output
-try {
-    [Console]::WriteLine($line)
-    [Console]::Out.Flush()
-} catch {
-    Write-Output "$modelDisplay | $projectName | $costStr | ${pctStr}%"
-}
-
-exit 0
+Write-Output $line

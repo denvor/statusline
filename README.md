@@ -216,11 +216,14 @@ The state file tracks each project independently. New Claude Code sessions reset
 
 | File | Role |
 |------|------|
-| `statusline.ps1` | Windows script — reads stdin, accumulates tokens, outputs status line |
-| `statusline.sh` | Mac / Linux script — same functionality, uses jq for JSON parsing |
+| `slineplus.ps1` | Windows script (full version) — reads stdin, accumulates tokens with state files + JSONL scanning |
+| `slineplus.sh` | Mac / Linux script (full version) — same functionality, uses jq for JSON parsing |
+| `statusline.ps1` | Windows script (simplified) — stdin-only, no state files |
+| `statusline.sh` | Mac / Linux script (simplified) — stdin-only, no state files |
 | `statusline.ini` | User-editable pricing configuration |
 | `statusline_state_<project>.json` | Auto-generated — one per project, persists token counts (session + cumulative + JSONL scan results + baseline) |
-| `install.ps1` / `install.sh` | Install scripts — copies files to `~/.claude/statusline/` and migrates old state files |
+| `install_plus.ps1` / `install_plus.sh` | Install scripts for slineplus — copies files to `~/.claude/statusline/` and migrates old state files |
+| `install.ps1` / `install.sh` | Install scripts for statusline (simplified) — copies files to `~/.claude/statusline/` |
 
 ## FAQ
 

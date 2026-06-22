@@ -216,11 +216,14 @@ Claude Code 在每次助手消息后通过 stdin 向脚本传入 JSON 快照。�
 
 | 文件 | 用途 |
 |------|------|
-| `statusline.ps1` | Windows 脚本 — 读取 stdin，累计 Token，输出状态栏 |
-| `statusline.sh` | Mac / Linux 脚本 — 功能相同，使用 jq 解析 JSON |
+| `slineplus.ps1` | Windows 脚本（完整版）— 读取 stdin，累计 Token，有状态文件 + JSONL 扫描 |
+| `slineplus.sh` | Mac / Linux 脚本（完整版）— 功能相同，使用 jq 解析 JSON |
+| `statusline.ps1` | Windows 脚本（精简版）— 纯 stdin，无状态文件 |
+| `statusline.sh` | Mac / Linux 脚本（精简版）— 纯 stdin，无状态文件 |
 | `statusline.ini` | 用户可编辑的定价配置 |
 | `statusline_state_<项目>.json` | 自动生成 — 每个项目一个独立文件，持久化 Token 累计数据（会话 + 累计 + JSONL 扫描结果 + 基线） |
-| `install.ps1` / `install.sh` | 安装脚本 — 复制文件到 `~/.claude/statusline/` 并迁移旧状态文件 |
+| `install_plus.ps1` / `install_plus.sh` | slineplus 安装脚本 — 复制文件到 `~/.claude/statusline/` 并迁移旧状态文件 |
+| `install.ps1` / `install.sh` | statusline（精简版）安装脚本 — 复制文件到 `~/.claude/statusline/` |
 
 ## 常见问题
 

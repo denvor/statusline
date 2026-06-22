@@ -1,25 +1,36 @@
 # Changelog
 
+## [2026-06-22]
+
+### Changed
+- **Name swap**: The simplified stdin-only statusline (formerly `sline.sh`/`sline.ps1`) is now `statusline.sh`/`statusline.ps1`. The full version with state files and JSONL scanning (formerly `statusline.sh`/`statusline.ps1`) is now `slineplus.sh`/`slineplus.ps1`.
+- **Install scripts renamed**: Simplified version installers are `install.sh`/`install.ps1`. Full version installers are `install_plus.sh`/`install_plus.ps1`.
+- Historical CHANGELOG entries updated to reflect the new naming scheme.
+
+### Added
+- **statusline.sh + statusline.ps1** (simplified, stdin-only) — lightweight statusline with no state files, no JSONL scanning. Displays project name, model, context bar, session time, and session cost computed from INI pricing × session tokens.
+
+
 ## [2026-06-18]
 
 ### Added
-- **statusline.sh + statusline.ps1** — Cumulative time tracking. Time display now shows `time Xm / YhZm` (session duration / project cumulative duration) instead of the previous single-message duration. New `session_duration_ms` and `cumulative_duration_ms` fields are persisted in per-project state files. Duration is computed as delta of the session-cumulative `total_duration_ms` to avoid double-counting on repeated invocations.
-- **statusline.sh + statusline.ps1** — Per-model cost tracking. Costs are no longer recomputed from accumulated tokens × current model prices. Instead, each message's cost is calculated at that message's model prices and accumulated into stored fields (`session_cost_stored` / `cumulative_cost_stored`). JSONL scan groups assistant messages by `model` and prices each group at the model's INI rates. Switching API providers no longer resets cumulative costs.
+- **slineplus.sh + slineplus.ps1** — Cumulative time tracking. Time display now shows `time Xm / YhZm` (session duration / project cumulative duration) instead of the previous single-message duration. New `session_duration_ms` and `cumulative_duration_ms` fields are persisted in per-project state files. Duration is computed as delta of the session-cumulative `total_duration_ms` to avoid double-counting on repeated invocations.
+- **slineplus.sh + slineplus.ps1** — Per-model cost tracking. Costs are no longer recomputed from accumulated tokens × current model prices. Instead, each message's cost is calculated at that message's model prices and accumulated into stored fields (`session_cost_stored` / `cumulative_cost_stored`). JSONL scan groups assistant messages by `model` and prices each group at the model's INI rates. Switching API providers no longer resets cumulative costs.
 
 ### Changed
 - **README / FAQ** — Added "How to reset cumulative time / cumulative cost" section, covering full reset (delete state file) and partial reset (zero cumulative fields via jq).
 
 ### Fixed
-- **statusline.sh** — `sync_jsonl_cost()` function definition moved before its call site. Bash executes scripts sequentially; the function was defined at line 329 but first called at line 254, so it was never found by the shell. This caused `jsonl_ever_scanned` to permanently remain `0`, blocking the three-value cost display. Combined with two other bugs below, the subagent cost tracking was effectively dead on Linux.
-- **statusline.sh** — Awk variable name `sub` collides with the built-in `sub()` string function. Renamed to `sub_cost` to prevent silent awk syntax failure, which caused `jsonl_total_cost` and `sub_session_cost` to always display as `0.000`.
-- **statusline.sh** — jq `// 0` alternative operator inside object value expressions with pipes (`{ key: [..] | add // 0 }`) requires parentheses on jq 1.7. Uncompilable expression silently failed under `2>/dev/null`, causing `sync_jsonl_cost` to never return real JSONL scan data.
-- **statusline.sh + statusline.ps1** — `jsonl_ever_scanned` now unconditionally set to `true` after the first scan attempt, even when no JSONL files exist yet. Previously required non-empty scan results to flip the flag, which meant projects with zero subagent activity would never activate the three-value cost format.
-- **statusline.sh + statusline.ps1** — Session time reset. `ses_dur` now computed as `total_duration_ms - baseline`, baseline snapshotted at session start so session time resets to 0 on new session / re-entry. Auto-migration for old state files without baseline field.
-- **statusline.sh + statusline.ps1** — Cumulative time inflation guard. `dur_delta > 5 min` treated as session restart, gap time not added to `cum_dur`.
-- **statusline.sh + statusline.ps1** — JSONL scan result protection. Switching API providers (no JSONL files from new provider) no longer zeroes cumulative `jsonl_input` etc. Update only when scan result >= saved values.
-- **statusline.sh** — Non-git repo crash. `git_branch` uninitialized caused `set -u` fatal error. Now initialized to empty string, git field auto-hidden for non-git projects.
-- **statusline.sh** — Empty project_key. When Claude Code JSON has `workspace.project_dir=""` (empty string, not null), jq's `// "unknown"` fallback fails because `""` is truthy. Caused shared `statusline_state_.json` and JSONL scan targeting `projects/` root. Added bash guard `[ -z "$project_key" ] && project_key="unknown"`.
-- **statusline.sh** — JSONL scan `total_cost` output as quoted string broke `--argjson` state save. Changed to `printf '{"total_cost":%.9f}'`.
+- **slineplus.sh** — `sync_jsonl_cost()` function definition moved before its call site. Bash executes scripts sequentially; the function was defined at line 329 but first called at line 254, so it was never found by the shell. This caused `jsonl_ever_scanned` to permanently remain `0`, blocking the three-value cost display. Combined with two other bugs below, the subagent cost tracking was effectively dead on Linux.
+- **slineplus.sh** — Awk variable name `sub` collides with the built-in `sub()` string function. Renamed to `sub_cost` to prevent silent awk syntax failure, which caused `jsonl_total_cost` and `sub_session_cost` to always display as `0.000`.
+- **slineplus.sh** — jq `// 0` alternative operator inside object value expressions with pipes (`{ key: [..] | add // 0 }`) requires parentheses on jq 1.7. Uncompilable expression silently failed under `2>/dev/null`, causing `sync_jsonl_cost` to never return real JSONL scan data.
+- **slineplus.sh + slineplus.ps1** — `jsonl_ever_scanned` now unconditionally set to `true` after the first scan attempt, even when no JSONL files exist yet. Previously required non-empty scan results to flip the flag, which meant projects with zero subagent activity would never activate the three-value cost format.
+- **slineplus.sh + slineplus.ps1** — Session time reset. `ses_dur` now computed as `total_duration_ms - baseline`, baseline snapshotted at session start so session time resets to 0 on new session / re-entry. Auto-migration for old state files without baseline field.
+- **slineplus.sh + slineplus.ps1** — Cumulative time inflation guard. `dur_delta > 5 min` treated as session restart, gap time not added to `cum_dur`.
+- **slineplus.sh + slineplus.ps1** — JSONL scan result protection. Switching API providers (no JSONL files from new provider) no longer zeroes cumulative `jsonl_input` etc. Update only when scan result >= saved values.
+- **slineplus.sh** — Non-git repo crash. `git_branch` uninitialized caused `set -u` fatal error. Now initialized to empty string, git field auto-hidden for non-git projects.
+- **slineplus.sh** — Empty project_key. When Claude Code JSON has `workspace.project_dir=""` (empty string, not null), jq's `// "unknown"` fallback fails because `""` is truthy. Caused shared `statusline_state_.json` and JSONL scan targeting `projects/` root. Added bash guard `[ -z "$project_key" ] && project_key="unknown"`.
+- **slineplus.sh** — JSONL scan `total_cost` output as quoted string broke `--argjson` state save. Changed to `printf '{"total_cost":%.9f}'`.
 
 ## [2026-06-16]
 
@@ -30,35 +41,35 @@
 - **`jsonl_ever_scanned` state flag** — tracks whether a JSONL scan has ever completed, enabling accurate distinction between "not yet scanned" and "zero subagent cost"
 
 ### Fixed
-- **statusline.ps1** — Inner guard (`$ji -eq 0 -and $jo -eq 0`) now also checks cache tokens (`$jcw_local`, `$jcr_local`) before skipping a JSONL entry, preventing cache-only assistant messages from being discarded
-- **statusline.ps1** — Outer guard now checks `$jsonlTotalCW` and `$jsonlTotalCR` in addition to input/output totals, ensuring pure-cache scan results are saved to state
-- **statusline.sh** — Removed basename fallback in `sync_jsonl_cost()` that could cause project directory name collision between projects with the same basename (now only uses the fully-sanitized path)
-- **statusline.sh** — Added numeric validation for `sync_interval` INI value: non-digit values fall back to default 10, preventing `integer expression expected` bash errors
-- **statusline.ps1 + statusline.sh** — Cost color threshold logic deduplicated: single color assignment after the if/else branch instead of duplicated logic in both branches
-- **statusline.sh** — Three separate awk calls for `jsonl_session_cost`, `jsonl_total_cost`, and `sub_session_cost` merged into one awk call
+- **slineplus.ps1** — Inner guard (`$ji -eq 0 -and $jo -eq 0`) now also checks cache tokens (`$jcw_local`, `$jcr_local`) before skipping a JSONL entry, preventing cache-only assistant messages from being discarded
+- **slineplus.ps1** — Outer guard now checks `$jsonlTotalCW` and `$jsonlTotalCR` in addition to input/output totals, ensuring pure-cache scan results are saved to state
+- **slineplus.sh** — Removed basename fallback in `sync_jsonl_cost()` that could cause project directory name collision between projects with the same basename (now only uses the fully-sanitized path)
+- **slineplus.sh** — Added numeric validation for `sync_interval` INI value: non-digit values fall back to default 10, preventing `integer expression expected` bash errors
+- **slineplus.ps1 + slineplus.sh** — Cost color threshold logic deduplicated: single color assignment after the if/else branch instead of duplicated logic in both branches
+- **slineplus.sh** — Three separate awk calls for `jsonl_session_cost`, `jsonl_total_cost`, and `sub_session_cost` merged into one awk call
 
 ## [2026-06-15]
 
 ### Changed
-- **statusline.sh** — 19 individual jq calls consolidated into a single `jq @tsv` call (reduced from ~25+ subprocess forks per invocation to ~3-4)
-- **statusline.sh** — Number formatting rewritten from awk to pure bash with nearest rounding (`format_num` function using integer arithmetic)
-- **statusline.sh** — Cost calculation consolidated from 3 awk calls into 1
-- **statusline.sh** — INI file read once into cached variable, parsed twice from memory instead of two disk reads
-- **statusline.ps1** — INI dual-read merged into single pass; `$orderFromIni` captured during pricing parse
-- **statusline.ps1** — Removed dead variables (`pctColor`, `tokenColor`, `$script_dir`)
+- **slineplus.sh** — 19 individual jq calls consolidated into a single `jq @tsv` call (reduced from ~25+ subprocess forks per invocation to ~3-4)
+- **slineplus.sh** — Number formatting rewritten from awk to pure bash with nearest rounding (`format_num` function using integer arithmetic)
+- **slineplus.sh** — Cost calculation consolidated from 3 awk calls into 1
+- **slineplus.sh** — INI file read once into cached variable, parsed twice from memory instead of two disk reads
+- **slineplus.ps1** — INI dual-read merged into single pass; `$orderFromIni` captured during pricing parse
+- **slineplus.ps1** — Removed dead variables (`pctColor`, `tokenColor`, `$script_dir`)
 
 ### Fixed
-- **statusline.sh** — `is_worktree` comparison broken after jq consolidation (`-eq 1` → `"true"` string comparison)
-- **statusline.sh** — `format_num` rounding truncation → nearest rounding (1999 → 2.0K, not 1.9K)
-- **statusline.ps1** — INI display order override never applied due to variable name conflict with default array
-- **install.ps1** — Removed dead `$changed` variable and unreachable else branch; always writes settings.json
+- **slineplus.sh** — `is_worktree` comparison broken after jq consolidation (`-eq 1` → `"true"` string comparison)
+- **slineplus.sh** — `format_num` rounding truncation → nearest rounding (1999 → 2.0K, not 1.9K)
+- **slineplus.ps1** — INI display order override never applied due to variable name conflict with default array
+- **install_plus.ps1** — Removed dead `$changed` variable and unreachable else branch; always writes settings.json
 
 ### Added
 - Backup logic in both install scripts: `statusline.ini.bak` created before overwriting on reinstall
 - README: `git clone` step in Quick Start; clarified that install script also modifies `settings.json`
 
 ### Added
-- Install scripts (`install.ps1` / `install.sh`) with built-in old state migration — one-command setup that copies files to `~/.claude/` and migrates legacy `statusline_state.json`
+- Install scripts (`install_plus.ps1` / `install_plus.sh`) with built-in old state migration — one-command setup that copies files to `~/.claude/` and migrates legacy `statusline_state.json`
 
 ### Removed
 - Standalone migration scripts (`migrate_state.ps1` / `migrate_state.sh`) — merged into install scripts
