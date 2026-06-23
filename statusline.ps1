@@ -1,5 +1,5 @@
 # statusline — Simplified stdin-only statusline (PowerShell)
-# Displays: project name | model | context usage bar | session time | session cost
+# Displays: project name | model | context usage bar | session time
 param()
 
 [Console]::InputEncoding  = [System.Text.Encoding]::UTF8
@@ -70,15 +70,13 @@ if ($data.context_window.context_window_size) {
     $contextSize = [int]$data.context_window.context_window_size
 }
 
-# Session cumulative tokens (for cost calculation)
+# Context tokens (for ctx display)
 $inputTokens  = if ($data.context_window.total_input_tokens)  { [int]$data.context_window.total_input_tokens }  else { 0 }
 $outputTokens = if ($data.context_window.total_output_tokens) { [int]$data.context_window.total_output_tokens } else { 0 }
 
-# Current message tokens (for call: display and cache approximation)
-$curIn  = if ($data.context_window.current_usage.input_tokens)              { [int]$data.context_window.current_usage.input_tokens }              else { 0 }
-$curOut = if ($data.context_window.current_usage.output_tokens)             { [int]$data.context_window.current_usage.output_tokens }             else { 0 }
-$curCW  = if ($data.context_window.current_usage.cache_creation_input_tokens) { [int]$data.context_window.current_usage.cache_creation_input_tokens } else { 0 }
-$curCR  = if ($data.context_window.current_usage.cache_read_input_tokens)      { [int]$data.context_window.current_usage.cache_read_input_tokens }      else { 0 }
+# Current message tokens (for call: display)
+$curIn  = if ($data.context_window.current_usage.input_tokens)  { [int]$data.context_window.current_usage.input_tokens }  else { 0 }
+$curOut = if ($data.context_window.current_usage.output_tokens) { [int]$data.context_window.current_usage.output_tokens } else { 0 }
 
 # Session time
 $durationMs = if ($data.cost.total_duration_ms) { [int64]$data.cost.total_duration_ms } else { 0 }
@@ -103,73 +101,23 @@ $thinkingEnabled = if ($data.thinking.enabled) { $data.thinking.enabled } else {
 $isWorktree = $false
 if (($data.worktree.name) -or ($data.workspace.git_worktree)) { $isWorktree = $true }
 
-# 4. Read INI pricing
+# 4. Read INI display config
 $scriptDir = if ($env:USERPROFILE) { $env:USERPROFILE } else { "$env:HOMEDRIVE$env:HOMEPATH" }
 $statuslineDir = Join-Path $scriptDir '.claude/statusline'
 $iniPath = Join-Path $statuslineDir 'statusline.ini'
 
-$pricing = @{
-    input_price       = 2.00
-    output_price      = 8.00
-    cache_write_price = 2.00
-    cache_read_price  = 0.50
-    currency          = 'CNY'
-}
-
-$iniSections = @{}
 $orderFromIni = $null
 if (Test-Path $iniPath) {
     try {
-        $currentSection = ''
         foreach ($line in (Get-Content $iniPath -Encoding UTF8 -ErrorAction Stop)) {
             $trimmed = $line.Trim()
-            if ($trimmed -match '^[#;]' -or $trimmed -eq '') { continue }
-            if ($trimmed -match '^\[(.+)\]$') {
-                $currentSection = $Matches[1].Trim()
-                if (-not $iniSections.ContainsKey($currentSection)) {
-                    $iniSections[$currentSection] = @{}
-                }
-                continue
-            }
-            if ($currentSection -and $trimmed -match '^\s*([^=]+?)\s*=\s*(.+?)\s*$') {
-                $key = $Matches[1].Trim()
-                $val = $Matches[2].Trim()
-                if ($key -in @('input_price','output_price','cache_write_price','cache_read_price')) {
-                    $iniSections[$currentSection][$key] = [double]$val
-                } elseif ($key -eq 'currency') {
-                    $iniSections[$currentSection]['currency'] = $val.ToUpper()
-                } elseif ($currentSection -eq 'display' -and $key -eq 'order') {
-                    $orderFromIni = $val
-                }
-            }
+            if ($trimmed -match '^\[display\]$') { $currentSection = 'display'; continue }
+            if ($currentSection -eq 'display' -and $trimmed -match '^order\s*=\s*(.+)$') {
+                $orderFromIni = $Matches[1]; break }
         }
     } catch {}
 }
-
-# Match pricing to current model, fallback to [default]
-$matchedSection = if ($iniSections.ContainsKey($modelClean)) { $modelClean } else { 'default' }
-if ($iniSections.ContainsKey($matchedSection)) {
-    $section = $iniSections[$matchedSection]
-    if ($section.ContainsKey('input_price'))       { $pricing['input_price']       = $section['input_price'] }
-    if ($section.ContainsKey('output_price'))      { $pricing['output_price']      = $section['output_price'] }
-    if ($section.ContainsKey('cache_write_price')) { $pricing['cache_write_price'] = $section['cache_write_price'] }
-    if ($section.ContainsKey('cache_read_price'))  { $pricing['cache_read_price']  = $section['cache_read_price'] }
-    if ($section.ContainsKey('currency'))          { $pricing['currency']          = $section['currency'] }
-}
-
-# Currency symbol
-$currencySymbol = if ($pricing['currency'] -eq 'CNY') { [char]0xA5 } else { '$' }
-
-# 5. Session cost (computed from session cumulative tokens × INI prices)
-# inputTokens/outputTokens = session cumulative; curCW/curCR = per-message approximation
-$sessionCost = [math]::Round(
-    ($inputTokens  / 1000000.0) * $pricing['input_price'] +
-    ($outputTokens / 1000000.0) * $pricing['output_price'] +
-    ($curCW       / 1000000.0) * $pricing['cache_write_price'] +
-    ($curCR       / 1000000.0) * $pricing['cache_read_price'],
-    6)
-
-# 6. Duration formatting
+# 5. Duration formatting
 function Format-Duration($ms) {
     if (-not $ms -or $ms -eq 0) { return '' }
     $totalSec = [int]($ms / 1000)
@@ -182,7 +130,7 @@ function Format-Duration($ms) {
 }
 $durationStr = Format-Duration $durationMs
 
-# 7. Number formatting
+# 6. Number formatting
 function Format-Num($n) {
     if ($n -ge 1000000) {
         $t = [int](($n * 10 + 500000) / 1000000)
@@ -199,7 +147,7 @@ $callInStr = Format-Num $curIn
 $callOutStr = Format-Num $curOut
 $contextSizeStr = Format-Num $contextSize
 
-# 8. Icons
+# 7. Icons
 $effortIcon = switch ($effortLevel) {
     'xhigh' { 'X' }; 'high' { 'H' }; 'medium' { 'M' }; 'low' { 'L' }; 'max' { '!' }
     default { '' }
@@ -207,7 +155,7 @@ $effortIcon = switch ($effortLevel) {
 $thinkingIcon = if ($thinkingEnabled) { 'T' } else { '' }
 $projectIcon  = if ($isWorktree) { 'WT' } else { 'PR' }
 
-# 9. ANSI colors
+# 8. ANSI colors
 $e = [char]27
 $rst   = "${e}[0m"
 $bold  = "${e}[1m"
@@ -223,7 +171,7 @@ $bblue     = "${e}[94m"
 $bmagenta  = "${e}[95m"
 $bwhite    = "${e}[97m"
 
-# 10. Progress bar (20 chars)
+# 9. Progress bar (20 chars)
 $barWidth = 20
 $filled = [math]::Min([math]::Max([int]($contextPct * $barWidth / 100), 0), $barWidth)
 if ($contextPct -gt 0 -and $filled -eq 0) { $filled = 1 }
@@ -238,14 +186,9 @@ $barEmpty  = if ($empty -gt 0)  { ('-' * $empty) } else { '' }
 $bar = "${barColor}${barFilled}${dim}${barEmpty}${rst}"
 $pctStr = $contextPct.ToString().PadLeft(3)
 
-# 11. Cost color
-$costColor = if ($sessionCost -ge 1.0) { $bred }
-             elseif ($sessionCost -ge 0.5) { $byellow }
-             else { $bgreen }
-$costStr = "$currencySymbol$($sessionCost.ToString('0.000'))"
 
-# 12. Display order
-$displayOrder = @('project', 'model', 'thinking', 'effort', 'bar', 'ctx', 'call', 'git', 'time', 'cost')
+# 10. Display order
+$displayOrder = @('project', 'model', 'thinking', 'effort', 'bar', 'ctx', 'call', 'git', 'time')
 if ($orderFromIni) {
     $displayOrder = $orderFromIni.Split(',') | ForEach-Object { $_.Trim() }
 }
@@ -267,7 +210,6 @@ if ($gitBranch) {
 $fields['git'] = $gitField
 
 $fields['time'] = if ($durationStr) { "${bblue}time ${rst}${durationStr}" } else { '' }
-$fields['cost'] = "${bold}${costColor}${costStr}${rst}"
 
 # Build line
 $parts = @()

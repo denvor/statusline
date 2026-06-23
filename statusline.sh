@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # statusline — Simplified stdin-only statusline
-# Displays: project name | model | context usage bar | session time | message cost
+# Displays: project name | model | context usage bar | session time
 # Dependencies: jq, git (optional)
 set -euo pipefail
 
@@ -24,7 +24,7 @@ fi
 # ── 2. Extract fields with jq (single call) ──────────────────────────
 IFS=$'\x1f' read -r project_name model_raw context_pct context_size \
     input_tokens output_tokens \
-    cur_in cur_out cur_cw cur_cr duration_ms \
+    cur_in cur_out duration_ms \
     is_worktree project_dir effort_level thinking_enabled \
     < <(echo "$raw_json" | jq -r '
     [
@@ -36,8 +36,6 @@ IFS=$'\x1f' read -r project_name model_raw context_pct context_size \
         (.context_window.total_output_tokens // 0),
         (.context_window.current_usage.input_tokens // 0),
         (.context_window.current_usage.output_tokens // 0),
-        (.context_window.current_usage.cache_creation_input_tokens // 0),
-        (.context_window.current_usage.cache_read_input_tokens // 0),
         (.cost.total_duration_ms // 0),
         ((.worktree.name // "") + (.workspace.git_worktree // "") | length > 0),
         (.workspace.project_dir // .cwd // ""),
@@ -73,43 +71,16 @@ case "$model_clean" in
     *)                  model_display="$model_clean" ;;
 esac
 
-# ── 5. Read INI pricing & display config ──────────────────────────────
+# ── 5. Read INI display config ──────────────────────────────────────────
 statusline_dir="${HOME}/.claude/statusline"
 ini_path="${statusline_dir}/statusline.ini"
 
-input_price=2.00
-output_price=8.00
-cache_write_price=2.00
-cache_read_price=0.50
-currency="CNY"
-display_order=("project" "model" "thinking" "effort" "bar" "ctx" "call" "git" "time" "cost")
+display_order=("project" "model" "thinking" "effort" "bar" "ctx" "call" "git" "time")
 
 ini_content=""
 [ -f "$ini_path" ] && ini_content=$(cat "$ini_path")
 
 if [ -n "$ini_content" ]; then
-    # Pricing: try model section, fallback to default
-    for section in "$model_clean" "default"; do
-        section_data=$(echo "$ini_content" | awk -v sec="[$section]" '
-            BEGIN { found=0 }
-            $0 == sec   { found=1; next }
-            /^\[/       { found=0 }
-            found && /^[^#;]/ && /=/ { gsub(/^[[:space:]]+|[[:space:]]+$/, ""); print }
-        ')
-        if [ -n "$section_data" ]; then
-            while IFS='=' read -r key val; do
-                case "$key" in
-                    input_price)       input_price="$val" ;;
-                    output_price)      output_price="$val" ;;
-                    cache_write_price) cache_write_price="$val" ;;
-                    cache_read_price)  cache_read_price="$val" ;;
-                    currency)          currency=$(echo "$val" | tr '[:lower:]' '[:upper:]') ;;
-                esac
-            done <<< "$section_data"
-            break
-        fi
-    done
-
     # Display order from [display] section
     ini_order=$(echo "$ini_content" | awk '
         BEGIN { found=0 }
@@ -125,21 +96,7 @@ if [ -n "$ini_content" ]; then
     fi
 fi
 
-# Currency symbol
-if [ "$currency" = "CNY" ]; then
-    currency_symbol="¥"
-else
-    currency_symbol='$'
-fi
-
-# ── 6. Session cost (computed from session cumulative tokens × INI prices)
-# input_tokens/output_tokens = session cumulative (from context_window.total_*)
-# cur_cw/cur_cr = per-message cache tokens (closest approximation available)
-session_cost=$(awk -v i="$input_tokens" -v o="$output_tokens" -v cw="$cur_cw" -v cr="$cur_cr" \
-    -v ip="$input_price" -v op="$output_price" -v cwp="$cache_write_price" -v crp="$cache_read_price" \
-    'BEGIN { printf "%.6f", (i/1000000)*ip + (o/1000000)*op + (cw/1000000)*cwp + (cr/1000000)*crp }')
-
-# ── 7. Duration formatting ───────────────────────────────────────────
+# ── 6. Duration formatting ───────────────────────────────────────────
 format_duration() {
     local ms=$1
     if [ -z "$ms" ] || [ "$ms" = "0" ] || [ "$ms" = "null" ]; then
@@ -162,7 +119,7 @@ format_duration() {
 }
 duration_str=$(format_duration "$duration_ms")
 
-# ── 8. Number formatting ─────────────────────────────────────────────
+# ── 7. Number formatting ─────────────────────────────────────────────
 format_num() {
     local n=$1
     if [ "$n" -ge 1000000 ]; then
@@ -182,7 +139,7 @@ call_in_str=$(format_num "$cur_in")
 call_out_str=$(format_num "$cur_out")
 context_size_str=$(format_num "$context_size")
 
-# ── 9. Icons ─────────────────────────────────────────────────────────
+# ── 8. Icons ─────────────────────────────────────────────────────────
 effort_icon=""
 case "$effort_level" in
     xhigh) effort_icon="X" ;;
@@ -198,7 +155,7 @@ thinking_icon=""
 project_icon="PR"
 [ "$is_worktree" = "true" ] && project_icon="WT"
 
-# ── 10. ANSI colors ──────────────────────────────────────────────────
+# ── 9. ANSI colors ──────────────────────────────────────────────────
 e=$(printf '\033')
 rst="${e}[0m"
 bold="${e}[1m"
@@ -214,7 +171,7 @@ bblue="${e}[94m"
 bmagenta="${e}[95m"
 bwhite="${e}[97m"
 
-# ── 11. Progress bar (20 chars) ──────────────────────────────────────
+# ── 10. Progress bar (20 chars) ──────────────────────────────────────
 bar_width=20
 filled=$(( context_pct * bar_width / 100 ))
 [ "$filled" -lt 0 ] && filled=0
@@ -234,18 +191,7 @@ bar_empty=$(printf '%*s' "$empty" '' | tr ' ' '-')
 bar="${bar_color}${bar_filled}${dim}${bar_empty}${rst}"
 pct_str=$(printf '%3s' "$context_pct")
 
-# ── 12. Cost color ───────────────────────────────────────────────────
-cost_color_code=$(awk -v v="$session_cost" \
-    'BEGIN { if (v >= 1.0) print 2; else if (v >= 0.5) print 1; else print 0 }')
-case "$cost_color_code" in
-    2) cost_color="$bred" ;;
-    1) cost_color="$byellow" ;;
-    *) cost_color="$bgreen" ;;
-esac
-
-cost_str=$(printf '%s%.3f' "$currency_symbol" "$session_cost")
-
-# ── 13. Build output line ────────────────────────────────────────────
+# ── 11. Build output line ────────────────────────────────────────────
 declare -A fields
 fields[project]="${bold}${bcyan}[${project_icon}] ${project_name}${rst}"
 fields[model]="${bmagenta}${model_display}${rst}"
@@ -262,8 +208,6 @@ fi
 fields[git]="$git_field"
 
 [ -n "$duration_str" ] && fields[time]="${bblue}time ${rst}${duration_str}" || fields[time]=""
-fields[cost]="${bold}${cost_color}${cost_str}${rst}"
-
 line=""
 sep=" ${dim}|${rst} "
 for key in "${display_order[@]}"; do
