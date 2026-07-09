@@ -22,9 +22,17 @@ if ! echo "$raw_json" | jq empty 2>/dev/null; then
 fi
 
 # ── 2. Extract fields with jq (single call) ──────────────────────────
-# 检查 stdin 是否包含 context_window —— 缺失说明是中间态 JSON，不刷新显示
-has_context=$(echo "$raw_json" | jq '.context_window != null')
-[ "$has_context" != "true" ] && echo "" && exit 0
+# 按 session_id 缓存有效输出，中间态 JSON 时复用
+cache_dir="/tmp/statusline"
+mkdir -p "$cache_dir"
+session_id=$(echo "$raw_json" | jq -r '.session_id // "default"')
+cache_file="${cache_dir}/${session_id}"
+
+has_context=$(echo "$raw_json" | jq '.context_window.total_input_tokens != null')
+if [ "$has_context" != "true" ]; then
+    [ -f "$cache_file" ] && cat "$cache_file"
+    exit 0
+fi
 
 IFS=$'\x1f' read -r project_name model_raw context_pct context_size \
     input_tokens output_tokens \
@@ -224,4 +232,6 @@ for key in "${display_order[@]}"; do
 done
 
 printf '%s\n' "$line"
+# 缓存有效输出，供下次中间态 JSON 时复用
+echo "$line" > "$cache_file" 2>/dev/null || true
 exit 0

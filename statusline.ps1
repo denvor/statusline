@@ -29,9 +29,14 @@ try {
     exit 0
 }
 
-# 检查 stdin 是否包含 context_window —— 缺失说明是中间态 JSON，不刷新显示
-if ($null -eq $data.context_window) {
-    Write-Output ""
+# 按 session_id 缓存有效输出，中间态 JSON 时复用
+$cacheDir = "/tmp/statusline"
+if (-not (Test-Path $cacheDir)) { New-Item -ItemType Directory -Path $cacheDir -Force | Out-Null }
+$sessionId = if ($data.session_id) { $data.session_id } else { 'default' }
+$cacheFile = Join-Path $cacheDir $sessionId
+
+if ($null -eq $data.context_window -or $null -eq $data.context_window.total_input_tokens) {
+    if (Test-Path $cacheFile) { Get-Content $cacheFile -Raw }
     exit 0
 }
 
@@ -227,3 +232,7 @@ foreach ($key in $displayOrder) {
 $line = $parts -join $sep
 
 Write-Output $line
+
+# 缓存有效输出，供下次中间态 JSON 时复用
+try { $line | Set-Content $cacheFile -NoNewline -ErrorAction Stop } catch {}
+
