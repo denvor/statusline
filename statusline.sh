@@ -22,6 +22,10 @@ if ! echo "$raw_json" | jq empty 2>/dev/null; then
 fi
 
 # ── 2. Extract fields with jq (single call) ──────────────────────────
+# 检查 stdin 是否包含 context_window —— 缺失说明是中间态 JSON，不刷新显示
+has_context=$(echo "$raw_json" | jq '.context_window != null')
+[ "$has_context" != "true" ] && echo "" && exit 0
+
 IFS=$'\x1f' read -r project_name model_raw context_pct context_size \
     input_tokens output_tokens \
     cur_in cur_out duration_ms \
@@ -211,6 +215,7 @@ fields[git]="$git_field"
 line=""
 sep=" ${dim}|${rst} "
 for key in "${display_order[@]}"; do
+    [ -v "fields[$key]" ] || continue
     val="${fields[$key]}"
     if [ -n "$val" ]; then
         [ -n "$line" ] && line+="$sep"

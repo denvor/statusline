@@ -29,6 +29,12 @@ try {
     exit 0
 }
 
+# 检查 stdin 是否包含 context_window —— 缺失说明是中间态 JSON，不刷新显示
+if ($null -eq $data.context_window) {
+    Write-Output ""
+    exit 0
+}
+
 # 3. Extract fields
 $projectName = ''
 if ($data.workspace.project_dir) {
