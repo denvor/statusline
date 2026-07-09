@@ -30,7 +30,7 @@ try {
 }
 
 # 按 session_id 缓存有效输出，中间态 JSON 时复用
-$cacheDir = "/tmp/statusline"
+$cacheDir = Join-Path ([System.IO.Path]::GetTempPath()) "statusline"
 if (-not (Test-Path $cacheDir)) { New-Item -ItemType Directory -Path $cacheDir -Force | Out-Null }
 $sessionId = if ($data.session_id) { $data.session_id } else { 'default' }
 $cacheFile = Join-Path $cacheDir $sessionId
