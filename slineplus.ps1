@@ -411,11 +411,13 @@ try {
 $effortIcon = ''
 if ($data.effort.level) {
     switch ($data.effort.level) {
-        'xhigh' { $effortIcon = 'X' }
-        'high'  { $effortIcon = 'H' }
-        'medium'{ $effortIcon = 'M' }
-        'low'   { $effortIcon = 'L' }
-        'max'   { $effortIcon = '!' }
+        'xhigh'     { $effortIcon = 'XH' }
+        'ultracode' { $effortIcon = 'U' }
+        'max'       { $effortIcon = 'X' }
+        'high'      { $effortIcon = 'H' }
+        'medium'    { $effortIcon = 'M' }
+        'low'       { $effortIcon = 'L' }
+        'auto'      { $effortIcon = 'A' }
     }
 }
 

@@ -160,7 +160,8 @@ $contextSizeStr = Format-Num $contextSize
 
 # 7. Icons
 $effortIcon = switch ($effortLevel) {
-    'xhigh' { 'X' }; 'high' { 'H' }; 'medium' { 'M' }; 'low' { 'L' }; 'max' { '!' }
+    'xhigh'     { 'XH' }; 'ultracode' { 'U' }; 'max' { 'X' }; 'high' { 'H' }
+    'medium'    { 'M' }; 'low' { 'L' }; 'auto' { 'A' }
     default { '' }
 }
 $thinkingIcon = if ($thinkingEnabled) { 'T' } else { '' }

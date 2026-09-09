@@ -511,11 +511,13 @@ context_size_str=$(format_num "$context_size")
 # ── 9. Icons ─────────────────────────────────────────────────────────
 effort_icon=""
 case "$effort_level" in
-    xhigh) effort_icon="X" ;;
-    high)  effort_icon="H" ;;
-    medium) effort_icon="M" ;;
-    low)   effort_icon="L" ;;
-    max)   effort_icon="!" ;;
+    xhigh)     effort_icon="XH" ;;
+    ultracode) effort_icon="U" ;;
+    max)       effort_icon="X" ;;
+    high)      effort_icon="H" ;;
+    medium)    effort_icon="M" ;;
+    low)       effort_icon="L" ;;
+    auto)      effort_icon="A" ;;
 esac
 
 thinking_icon=""
