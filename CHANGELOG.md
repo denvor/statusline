@@ -1,5 +1,24 @@
 # Changelog
 
+## [1.0.0] - 2026-09-09
+
+First versioned release.
+
+### Added
+- **Per-session statusline cache** — the last valid rendered line is cached under the system temp dir (`/tmp/statusline/<session_id>`, Windows `%TEMP%\statusline`), keyed by `session_id`. When Claude Code sends an intermediate JSON without usable context data, the cached line is re-emitted instead of blanking the bar. Cache files are per-session so simultaneous projects don't clobber each other.
+- **Effort level `ultracode` → `U` and `auto` → `A`** icons (previously these levels rendered nothing).
+- **Version tracking** — new `VERSION` file and `v*` git tags.
+
+### Changed
+- **Removed cost display from the simplified `statusline.sh`/`statusline.ps1`** — session cost can no longer be derived from stdin (as of Claude Code v2.1.132, `total_input_tokens`/`total_output_tokens` are current-context values, not session-cumulative). The full cost feature remains in `slineplus`.
+- **Effort icon remap** — `xhigh` → `XH` (was `X`), `max` → `X` (was `!`). Two-letter `XH` is safe: fields join with a `" | "` separator and nothing pads or slices the effort value.
+- **`effort` added to the default `[display] order`** in `statusline.ini`.
+
+### Fixed
+- **Context bar no longer flashes to 0** during request processing. The root cause was intermediate stdin JSON carrying `context_window` with `total_input_tokens: null`. The simplified statusline now treats a null `total_input_tokens` as an invalid frame and falls back to the cached line.
+- **Cache dir on Windows** uses `System.IO.Path::GetTempPath()` instead of the Linux-only `/tmp`.
+- **Windows installer mojibake** — replaced non-ASCII `→` / `—` characters in `install.ps1` and `install_plus.ps1` `Write-Host` output with ASCII (`->` / `-`), which garbled under the GBK console code page.
+
 ## [2026-06-22]
 
 ### Changed

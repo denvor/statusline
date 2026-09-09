@@ -1,6 +1,6 @@
 # Claude Code Status Line
 
-[![zh-CN](https://img.shields.io/badge/语言-中文-blue.svg)](README_zh.md)
+[![version](https://img.shields.io/badge/version-1.0.0-green.svg)](CHANGELOG.md) [![zh-CN](https://img.shields.io/badge/语言-中文-blue.svg)](README_zh.md)
 
 A PowerShell / bash custom status line for [Claude Code](https://code.claude.com/docs/en/overview), designed for users of **third-party API providers** (DeepSeek, etc.). Displays project, model, context usage, token consumption, and **custom-priced cost** — all in a single line at the bottom of your terminal.
 

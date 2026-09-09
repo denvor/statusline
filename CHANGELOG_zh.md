@@ -1,5 +1,24 @@
 # 更新日志
 
+## [1.0.0] - 2026-09-09
+
+首个带版本号的发布。
+
+### 新增
+- **按会话缓存状态栏** — 最后一次有效渲染行会缓存到系统临时目录（`/tmp/statusline/<session_id>`，Windows 为 `%TEMP%\statusline`），以 `session_id` 为键。当 Claude Code 发来不含有效上下文的中间态 JSON 时，重新输出缓存行而不是清空状态栏。缓存按会话隔离，多项目并行互不覆盖。
+- **effort 档次 `ultracode` → `U`、`auto` → `A`** 图标（此前这两个档次不显示）。
+- **版本管理** — 新增 `VERSION` 文件和 `v*` git tag。
+
+### 变更
+- **精简版 `statusline.sh`/`statusline.ps1` 移除费用显示** — 会话费用已无法从 stdin 推导（自 Claude Code v2.1.132 起，`total_input_tokens`/`total_output_tokens` 是当前上下文用量，而非会话累计）。完整费用功能保留在 `slineplus` 中。
+- **effort 图标重映射** — `xhigh` → `XH`（原为 `X`）、`max` → `X`（原为 `!`）。两字符 `XH` 安全：字段用 `" | "` 分隔符拼接，没有任何逻辑对 effort 值做补位或切片。
+- **`effort` 加入 `statusline.ini` 的默认 `[display] order`**。
+
+### 修复
+- **上下文条在请求处理期间不再闪回 0**。根因是中间态 stdin JSON 的 `context_window` 里 `total_input_tokens` 为 null。精简版现在把 null 的 `total_input_tokens` 当作无效帧，回退到缓存行。
+- **Windows 缓存目录** 改用 `System.IO.Path::GetTempPath()`，替代仅限 Linux 的 `/tmp`。
+- **Windows 安装脚本乱码** — 将 `install.ps1` 和 `install_plus.ps1` 中 `Write-Host` 输出里的非 ASCII 字符 `→` / `—` 替换为 ASCII（`->` / `-`），这些字符在 GBK 控制台码页下会乱码。
+
 ## [2026-06-22]
 
 ### Changed
