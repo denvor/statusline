@@ -33,12 +33,12 @@ foreach ($f in $files) {
         if ($f.Name -eq 'statusline.ini' -and (Test-Path $dest)) {
             $backup = Join-Path $TargetDir 'statusline.ini.bak'
             Copy-Item -Path $dest -Destination $backup -Force
-            Write-Host "  BACKUP: statusline.ini → statusline.ini.bak"
+            Write-Host "  BACKUP: statusline.ini -> statusline.ini.bak"
         }
         Copy-Item -Path $f.From -Destination $TargetDir -Force
         Write-Host "  OK: $($f.Name)"
     } else {
-        Write-Host "  WARN: $($f.Name) not found in repo — skipping"
+        Write-Host "  WARN: $($f.Name) not found in repo - skipping"
     }
 }
 

@@ -40,7 +40,7 @@ if (Test-Path $iniDest) {
         Copy-Item -Path $iniSource -Destination $TargetDir -Force
         Write-Host "  OK: statusline.ini"
     } else {
-        Write-Host "  WARN: statusline.ini not found — statusline will use defaults"
+        Write-Host "  WARN: statusline.ini not found - statusline will use defaults"
     }
 }
 
@@ -75,6 +75,6 @@ if ($settings.ContainsKey('statusLine')) {
 $settings['statusLine'] = $newStatusLine
 
 $settings | ConvertTo-Json -Depth 5 | Out-File -FilePath $settingsPath -Encoding UTF8
-Write-Host "  Added statusLine entry → statusline.ps1"
+Write-Host "  Added statusLine entry -> statusline.ps1"
 
 Write-Host "`nInstall complete! Restart Claude Code to see statusline."
