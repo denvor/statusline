@@ -23,10 +23,10 @@ if ! echo "$raw_json" | jq empty 2>/dev/null; then
     exit 0
 fi
 
-# ── 2. Extract fields with jq (single call, 1 fork vs 19) ────────────
+# ── 2. Extract fields with jq (single call, 1 fork vs 18) ────────────
 IFS=$'\x1f' read -r project_name model_raw context_pct context_size \
     input_tokens output_tokens \
-    cur_in cur_out cur_cw cur_cr session_id duration_ms cc_cost \
+    cur_in cur_out cur_cw cur_cr session_id duration_ms \
     is_worktree repo_host_raw project_dir effort_level thinking_enabled \
     project_key < <(echo "$raw_json" | jq -r '
     [
@@ -42,7 +42,6 @@ IFS=$'\x1f' read -r project_name model_raw context_pct context_size \
         (.context_window.current_usage.cache_read_input_tokens // 0),
         (.session_id // "unknown"),
         (.cost.total_duration_ms // 0),
-        (.cost.total_cost_usd // 0),
         ((.worktree.name // "") + (.workspace.git_worktree // "") | length > 0),
         (.workspace.repo.host // ""),
         (.workspace.project_dir // .cwd // ""),
