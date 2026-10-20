@@ -1,5 +1,11 @@
 # 更新日志
 
+## [1.0.1] - 2026-10-20
+
+### 变更
+- **slineplus.sh** — 移除对 stdin `cost.total_cost_usd` 的无用提取（`cc_cost` 变量从未被读取；该字段只含 Anthropic 官方定价，对第三方 API 用户无意义）。
+- **statusline.ini** — 从默认 `[display] order` 中去掉残留的 `cost` 字段（精简版从不渲染该字段）。
+
 ## [1.0.0] - 2026-09-09
 
 首个带版本号的发布。

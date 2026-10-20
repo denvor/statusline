@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.0.1] - 2026-10-20
+
+### Changed
+- **slineplus.sh** — Removed the unused extraction of stdin `cost.total_cost_usd` (`cc_cost` variable was never read; the field only carries Anthropic-list pricing, which is meaningless for third-party API users).
+- **statusline.ini** — Dropped the leftover `cost` field from the default `[display] order`; the simplified statusline never renders it.
+
 ## [1.0.0] - 2026-09-09
 
 First versioned release.
