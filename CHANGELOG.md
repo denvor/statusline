@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.0.3] - 2026-11-11
+
+### Changed
+- **statusline.sh + statusline.ps1** — After `/compact` the context display now shows `0/0` instead of the stale pre-compact cached value. Post-compact frames carry `context_window.total_input_tokens: 0` **and** `prompt_cache.recache_tokens_if_cold: null`; the script uses that combination to tell them apart from mid-stream frames (where `recache_tokens_if_cold` still holds the real total) and renders them as-is without writing them to the cache. Streaming frames keep falling back to the cached line, so `ctx:` still never flashes to 0 mid-response.
+- **README.md + README_zh.md** — New FAQ entry "What does the context display show after `/compact`?" documenting the three frame types, why the `0` persists (the statusline is event-driven — there is no timer unless `statusLine.refreshInterval` is set), and that the full `slineplus` version has no per-session cache and therefore shows `0/0` on any zeroed frame.
+
 ## [1.0.2] - 2026-11-11
 
 ### Fixed

@@ -1,5 +1,11 @@
 # 更新日志
 
+## [1.0.3] - 2026-11-11
+
+### 变更
+- **statusline.sh + statusline.ps1** — `/compact` 之后上下文显示 `0/0`，不再显示 compact 前的陈旧缓存值。compact 后的帧同时满足 `context_window.total_input_tokens: 0` 和 `prompt_cache.recache_tokens_if_cold: null`；脚本用这两个字段区分「compact 后」与「流式中间帧」（后者 `recache_tokens_if_cold` 仍是真实总量），前者按原样渲染且不写入缓存。流式中间帧仍然回退到缓存行，所以流式期间 `ctx:` 依旧不会闪回 0。
+- **README.md + README_zh.md** — 新增常见问题「`/compact` 之后上下文显示什么？」，说明三种帧类型、`0` 为什么会一直持续（状态栏是事件驱动，未设置 `statusLine.refreshInterval` 时没有定时器），以及完整版 slineplus 没有按会话缓存、任何清零帧都会显示 `0/0`。
+
 ## [1.0.2] - 2026-11-11
 
 ### 修复

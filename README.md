@@ -1,6 +1,6 @@
 # Claude Code Status Line
 
-[![version](https://img.shields.io/badge/version-1.0.2-green.svg)](CHANGELOG.md) [![zh-CN](https://img.shields.io/badge/语言-中文-blue.svg)](README_zh.md)
+[![version](https://img.shields.io/badge/version-1.0.3-green.svg)](CHANGELOG.md) [![zh-CN](https://img.shields.io/badge/语言-中文-blue.svg)](README_zh.md)
 
 A PowerShell / bash custom status line for [Claude Code](https://code.claude.com/docs/en/overview), designed for users of **third-party API providers** (DeepSeek, etc.). Displays project, model, context usage, token consumption, and **custom-priced cost** — all in a single line at the bottom of your terminal.
 
@@ -44,6 +44,7 @@ Each segment is color-coded for quick scanning:
 - **Session + project cost split** — displays `session_cost/project_cost`; session resets on new Claude Code session, project cost persists
 - **Per-model cost tracking** — each message is costed at its own model's INI prices and accumulated. JSONL scan groups by `model` and prices each group independently. Switching API providers preserves historical costs.
 - **Debounce-safe** — detects and skips duplicate updates from Claude Code's 300ms debounce
+- **Per-session cache** — the last valid line is cached per `session_id` and re-emitted on intermediate frames, so `ctx:` never flashes to 0 while a response is streaming. After `/compact` the bar deliberately shows `0/0` until the first message following the compaction (see FAQ).
 - **Git info** — branch name + remote host (e.g., `@github`)
 - **Worktree aware** — shows `[WT]` prefix inside git worktrees
 - **Session / cumulative time** — displays `time Xm / YhZm` (session duration / project cumulative duration), from `cost.total_duration_ms`
@@ -300,6 +301,25 @@ When Claude Code starts a session with a **new** `session_id` (different from wh
 This is the normal behavior for `claude` (fresh start), `claude --continue --fork-session`, and `/resume` — all of which assign a new `session_id`.
 
 > If `statusline_state_<project>.json` is manually deleted or corrupted, accumulated history for that project is lost and counting restarts from zero.
+
+### What does the context display show after `/compact`?
+
+**It shows `0/0` (0%) until you send your next message.** That is intentional — the alternative is showing a stale pre-compact number, which is worse than an honest zero.
+
+Why: Claude Code does not report the post-compact context in the statusline snapshot. Right after a compaction, every frame carries `context_window.total_input_tokens: 0` **and** `prompt_cache.recache_tokens_if_cold: null`, and the real value only comes back with the first assistant message after the compaction. The script distinguishes three frame types:
+
+| Frame type | `total_input_tokens` | `recache_tokens_if_cold` | Display |
+|---|---|---|---|
+| Normal | `> 0` | same value | normal (`ctx: 18.5K/3.2K`) |
+| Streaming intermediate | `0` | `> 0` | cached line — no 0 flash |
+| After `/compact` | `0` | `null` | `0/0` (real value returns with the next message) |
+
+Two things make the `0` look permanent:
+
+1. **The statusline is event-driven.** Claude Code re-runs the command only when the snapshot changes — there is no timer unless you set `statusLine.refreshInterval` in `settings.json`. So nothing re-renders the bar while you sit idle after compacting.
+2. **The `0` frame is not cached.** Writing it would overwrite the last good line, so the script renders it without updating the cache. The first real frame after your next message restores the true context immediately.
+
+> The full version (`slineplus.sh` / `slineplus.ps1`) has no per-session cache at all — it always renders exactly what the current frame contains, so it shows `0/0` on *any* zeroed frame (including mid-stream).
 
 ## License
 

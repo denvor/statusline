@@ -1,6 +1,6 @@
 # Claude Code 状态栏美化脚本
 
-[![version](https://img.shields.io/badge/version-1.0.2-green.svg)](CHANGELOG_zh.md) [![en](https://img.shields.io/badge/lang-English-red.svg)](README.md)
+[![version](https://img.shields.io/badge/version-1.0.3-green.svg)](CHANGELOG_zh.md) [![en](https://img.shields.io/badge/lang-English-red.svg)](README.md)
 
 基于 PowerShell / bash 的 [Claude Code](https://code.claude.com/docs/zh-CN/overview) 自定义状态栏，专为**第三方 API 用户**（如 DeepSeek）设计。在终端底部单行显示项目名、模型名、上下文用量、Token 消耗和**自定义定价的费用**。
 
@@ -44,6 +44,7 @@
 - **会话/项目费用分离** — 显示 `会话费用/项目累计费用`；新会话清零左侧，项目费用持续累加
 - **按模型计费** — 每条消息使用该消息对应模型的 INI 定价计算费用并累加，切换模型不影响历史费用。JSONL subagent 扫描也按模型名称分组，每组用对应价格算费。
 - **防抖去重** — 检测并跳过 Claude Code 300ms 防抖导致的重复调用
+- **按会话缓存** — 最后一次有效输出按 `session_id` 缓存，中间态帧直接复用，流式输出期间 `ctx:` 不会闪回 0。`/compact` 之后状态栏会刻意显示 `0/0`，直到 compact 后的第一条消息才恢复（见常见问题）
 - **Git 信息** — 分支名 + 远程仓库（如 `@github`）
 - **Worktree 感知** — git worktree 中显示 `[WT]` 前缀
 - **会话 / 累计耗时** — 显示 `time Xm / YhZm`（当前会话耗时 / 项目累计耗时），数据来自 `cost.total_duration_ms`
@@ -300,6 +301,25 @@ claude --continue --fork-session
 这是 `claude`（全新启动）、`claude --continue --fork-session` 和 `/resume` 的正常行为 — 这三种方式都会分配新的 `session_id`。
 
 > 如果手动删除或损坏了 `statusline_state_<项目>.json`，对应项目的累计记录会丢失，从零开始重新计算。
+
+### `/compact` 之后上下文显示什么？
+
+**显示 `0/0`（0%），直到你发送下一条消息。** 这是有意为之 —— 与其显示一个 compact 之前的陈旧数字，不如诚实地显示 0。
+
+原因：Claude Code 不会在状态栏快照里上报 compact 后的上下文。compact 刚结束时，每一帧的 `context_window.total_input_tokens` 都是 `0`，而且 `prompt_cache.recache_tokens_if_cold` 是 `null`；真实数值要等 compact 之后的第一条助手消息才会回来。脚本据此区分三种帧：
+
+| 帧类型 | `total_input_tokens` | `recache_tokens_if_cold` | 显示 |
+|---|---|---|---|
+| 正常 | `> 0` | 同值 | 正常（`ctx: 18.5K/3.2K`）|
+| 流式中间帧 | `0` | `> 0` | 复用缓存行，不闪 0 |
+| `/compact` 之后 | `0` | `null` | `0/0`（下一条消息后恢复真实值）|
+
+有两个原因让这个 `0` 看起来一直是 0：
+
+1. **状态栏是事件驱动的。** Claude Code 只在快照变化时重新执行状态栏命令 —— 除非你在 `settings.json` 里设置 `statusLine.refreshInterval`，否则没有定时器。所以 compact 后闲着不动时，状态栏不会重新渲染。
+2. **这个 0 帧不会被写进缓存。** 写进去会覆盖掉最后一次有效行，所以脚本只渲染、不更新缓存。你下一条消息后的第一帧真实数据会立即恢复显示。
+
+> 完整版（`slineplus.sh` / `slineplus.ps1`）完全没有按会话缓存 —— 它永远按当前帧的内容渲染，所以任何清零帧（包括流式中间帧）都会显示 `0/0`。
 
 ## License
 
