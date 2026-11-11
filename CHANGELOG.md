@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.0.5] - 2026-11-11
+
+### Fixed
+- **slineplus.sh + slineplus.ps1** — The old-state migration never triggered because of undefined variables: bash used `$cumulative_input`/`$cumulative_output` (should be `$cum_in`/`$cum_out`; under `set -u` this crashed the script) and PowerShell used `$cumulativeInput`/`$cumulativeOutput` (should be `$cumIn`/`$cumOut`). State files without stored costs are now seeded correctly.
+- **slineplus.ps1** — The JSONL dedup signature now includes the model, matching the bash version, so messages from different models with identical timestamps are no longer wrongly deduplicated.
+- **slineplus.ps1** — Effort icon color changed from `$yellow` (33) to `$byellow` (93) to match the bash version.
+- **slineplus.sh** — The JSONL filter now also checks `cache_creation_input_tokens` / `cache_read_input_tokens`, so cache-only assistant messages are no longer discarded.
+
 ## [1.0.4] - 2026-11-11
 
 ### Changed

@@ -1,5 +1,13 @@
 # 更新日志
 
+## [1.0.5] - 2026-11-11
+
+### 修复
+- **slineplus.sh + slineplus.ps1** — 旧状态迁移逻辑因变量名错误从未生效：bash 版误用 `$cumulative_input`/`$cumulative_output`（应为 `$cum_in`/`$cum_out`，在 `set -u` 下会直接崩溃），ps1 版误用 `$cumulativeInput`/`$cumulativeOutput`（应为 `$cumIn`/`$cumOut`）。现在升级前缺少已存费用的状态文件能正确播种。
+- **slineplus.ps1** — JSONL 去重签名加入 model 字段，与 bash 版一致，避免不同模型但时间戳相同的消息被错误去重。
+- **slineplus.ps1** — effort 图标颜色从 `$yellow`(33) 改为 `$byellow`(93)，与 bash 版一致。
+- **slineplus.sh** — JSONL 过滤加入 `cache_creation_input_tokens` / `cache_read_input_tokens` 检查，纯 cache 的助手消息不再被丢弃。
+
 ## [1.0.4] - 2026-11-11
 
 ### 变更
