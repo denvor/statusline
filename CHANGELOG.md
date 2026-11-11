@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.0.2] - 2026-11-11
+
+### Fixed
+- **statusline.sh + statusline.ps1** — Context no longer flashes to 0 during streaming. Claude Code sends intermediate frames whose `context_window.total_input_tokens` is `0` (the in-flight assistant message's `usage` is still all zeros); the validity guard now treats `0` as "no data" and falls back to the cached line, matching Claude Code's own `$.session.usage` handling.
+
 ## [1.0.1] - 2026-10-20
 
 ### Changed

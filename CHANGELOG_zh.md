@@ -1,5 +1,10 @@
 # 更新日志
 
+## [1.0.2] - 2026-11-11
+
+### 修复
+- **statusline.sh + statusline.ps1** — 流式输出期间 ctx 不再闪回 0。Claude Code 会发出 `context_window.total_input_tokens` 为 `0` 的中间帧（当前助手消息的 `usage` 仍是全 0）；有效性判定现在把 `0` 当作「无数据」，回退到缓存行，与 Claude Code 自身的 `$.session.usage` 处理一致。
+
 ## [1.0.1] - 2026-10-20
 
 ### 变更
