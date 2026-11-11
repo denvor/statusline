@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.0.4] - 2026-11-11
+
+### Changed
+- **statusline.sh + statusline.ps1 + slineplus.sh + slineplus.ps1** — Time now counts active API time only. Both versions read `cost.total_api_duration_ms` instead of `cost.total_duration_ms`, so idle time, leaving the terminal open overnight, and machine sleep no longer inflate the `time` field. The full version detects a pre-upgrade state file (whose `session_duration_baseline` was wall-clock based) and resets the baseline, so session time restarts from 0 instead of being clamped there permanently.
+- **README.md + README_zh.md** — New FAQ entry "How is the time calculated? Does idle time count?" and updated feature descriptions.
+
 ## [1.0.3] - 2026-11-11
 
 ### Changed

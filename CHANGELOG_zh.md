@@ -1,5 +1,11 @@
 # 更新日志
 
+## [1.0.4] - 2026-11-11
+
+### 变更
+- **statusline.sh + statusline.ps1 + slineplus.sh + slineplus.ps1** — 时间改为只统计活跃 API 耗时。两个版本都改用 `cost.total_api_duration_ms` 取代 `cost.total_duration_ms`，空闲、整晚挂着终端、机器睡眠不再让 `time` 虚增。完整版会检测升级前的旧状态文件（其 `session_duration_baseline` 是墙钟语义）并重置 baseline，使会话时间从 0 重新开始，而不是永远被钳制在 0。
+- **README.md + README_zh.md** — 新增常见问题「时间是如何计算的？空闲时间算在内吗？」，并更新功能说明。
+
 ## [1.0.3] - 2026-11-11
 
 ### 变更

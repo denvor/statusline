@@ -1,6 +1,6 @@
 # Claude Code 状态栏美化脚本
 
-[![version](https://img.shields.io/badge/version-1.0.3-green.svg)](CHANGELOG_zh.md) [![en](https://img.shields.io/badge/lang-English-red.svg)](README.md)
+[![version](https://img.shields.io/badge/version-1.0.4-green.svg)](CHANGELOG_zh.md) [![en](https://img.shields.io/badge/lang-English-red.svg)](README.md)
 
 基于 PowerShell / bash 的 [Claude Code](https://code.claude.com/docs/zh-CN/overview) 自定义状态栏，专为**第三方 API 用户**（如 DeepSeek）设计。在终端底部单行显示项目名、模型名、上下文用量、Token 消耗和**自定义定价的费用**。
 
@@ -47,7 +47,7 @@
 - **按会话缓存** — 最后一次有效输出按 `session_id` 缓存，中间态帧直接复用，流式输出期间 `ctx:` 不会闪回 0。`/compact` 之后状态栏会刻意显示 `0/0`，直到 compact 后的第一条消息才恢复（见常见问题）
 - **Git 信息** — 分支名 + 远程仓库（如 `@github`）
 - **Worktree 感知** — git worktree 中显示 `[WT]` 前缀
-- **会话 / 累计耗时** — 显示 `time Xm / YhZm`（当前会话耗时 / 项目累计耗时），数据来自 `cost.total_duration_ms`
+- **会话 / 累计耗时** — 显示 `time Xm / YhZm`（当前会话耗时 / 项目累计耗时），数据来自 `cost.total_api_duration_ms`，仅统计活跃 API 耗时，不含空闲 / 睡眠（见常见问题）
 - **零依赖（Windows）** — 纯 PowerShell，不需要 `jq` 或 Node.js。Mac/Linux 需要 bash 3.2+ 和 `jq`
 
 ## 环境要求
@@ -288,6 +288,14 @@ claude --continue --fork-session
    ```
 
 > 项目名称 `<>` 中的部分对应工作目录路径脱敏后的形式（如 `/home/user/work/my-project` 对应 `_home_user_work_my-project`）。
+
+### 时间是如何计算的？空闲时间算在内吗？
+
+**不算 —— 只统计活跃的 API 耗时。** 精简版和完整版都读取 Claude Code 状态栏快照里的 `cost.total_api_duration_ms`，该字段只累加等待 API 响应的时间。空闲、整晚挂着终端不动、机器睡眠都不计入。
+
+这和 Claude Code 同时提供的 `cost.total_duration_ms` 不同 —— 后者是纯粹的墙钟时间（从会话启动开始一直增长，人离开也在走）。状态栏刻意不使用该字段。
+
+由于状态栏是事件驱动的，数字只在 Claude Code 重新运行时更新，所以它是随着你的消息跳跃式增长，而不是逐秒走动。
 
 ### 开启新会话时如何计算？
 

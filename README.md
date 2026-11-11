@@ -1,6 +1,6 @@
 # Claude Code Status Line
 
-[![version](https://img.shields.io/badge/version-1.0.3-green.svg)](CHANGELOG.md) [![zh-CN](https://img.shields.io/badge/语言-中文-blue.svg)](README_zh.md)
+[![version](https://img.shields.io/badge/version-1.0.4-green.svg)](CHANGELOG.md) [![zh-CN](https://img.shields.io/badge/语言-中文-blue.svg)](README_zh.md)
 
 A PowerShell / bash custom status line for [Claude Code](https://code.claude.com/docs/en/overview), designed for users of **third-party API providers** (DeepSeek, etc.). Displays project, model, context usage, token consumption, and **custom-priced cost** — all in a single line at the bottom of your terminal.
 
@@ -47,7 +47,7 @@ Each segment is color-coded for quick scanning:
 - **Per-session cache** — the last valid line is cached per `session_id` and re-emitted on intermediate frames, so `ctx:` never flashes to 0 while a response is streaming. After `/compact` the bar deliberately shows `0/0` until the first message following the compaction (see FAQ).
 - **Git info** — branch name + remote host (e.g., `@github`)
 - **Worktree aware** — shows `[WT]` prefix inside git worktrees
-- **Session / cumulative time** — displays `time Xm / YhZm` (session duration / project cumulative duration), from `cost.total_duration_ms`
+- **Session / cumulative time** — displays `time Xm / YhZm` (session duration / project cumulative duration), from `cost.total_api_duration_ms` — active API time only, idle/sleep excluded (see FAQ)
 - **Zero dependencies (Windows)** — pure PowerShell, no `jq` or Node.js required. Mac/Linux requires bash 3.2+ and `jq`.
 
 ## Requirements
@@ -288,6 +288,14 @@ To reset the project cumulative time (right side of `time XhYm`) and cumulative 
    ```
 
 > The `<project>` placeholder is the sanitized working directory path (e.g., `/home/user/work/my-project` → `_home_user_work_my-project`).
+
+### How is the time calculated? Does idle time count?
+
+**No — only active API time is counted.** Both the simplified and full versions read `cost.total_api_duration_ms` from Claude Code's statusline snapshot, which accumulates only the time spent waiting on API responses. Idle time, leaving the terminal open overnight, and machine sleep are all excluded.
+
+This is deliberately different from `cost.total_duration_ms`, which Claude Code also provides and which is pure wall-clock time since the session started — it keeps growing while you are away. The statusline does not use that field.
+
+Because the statusline is event-driven, the number only moves when Claude Code re-runs the command, so it advances in jumps aligned with your messages rather than second by second.
 
 ### What happens when I start a new session?
 
