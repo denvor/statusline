@@ -143,7 +143,7 @@ $curOut = if ($data.context_window.current_usage.output_tokens)             { [i
 $curCW  = if ($data.context_window.current_usage.cache_creation_input_tokens) { [int]$data.context_window.current_usage.cache_creation_input_tokens } else { 0 }
 $curCR  = if ($data.context_window.current_usage.cache_read_input_tokens)      { [int]$data.context_window.current_usage.cache_read_input_tokens }      else { 0 }
 $sessionId = if ($data.session_id) { $data.session_id } else { 'unknown' }
-$durationMs = if ($data.cost.total_duration_ms) { [int64]$data.cost.total_duration_ms } else { 0 }
+$durationMs = if ($data.cost.total_api_duration_ms) { [int64]$data.cost.total_api_duration_ms } else { 0 }
 
 # Project key for per-project tracking
 $projectKey = if ($data.workspace.project_dir) { $data.workspace.project_dir } else { $data.cwd }
@@ -237,7 +237,7 @@ if ($isNewProject) {
         if ($durDelta -lt 0) {
             $durDelta = $durationMs
         } elseif ($durDelta -gt 300000) {
-            # Gap > 5 min: likely session restart, reset baseline and skip gap
+            # 活跃时间不会因空闲跳跃，异常大的增量只可能来自状态损坏，丢弃
             $sesDurBaseline = $durationMs
             $durDelta = 0
         }
@@ -248,6 +248,9 @@ if ($isNewProject) {
 # ses_dur = duration_ms - baseline (0 at session start, grows during session)
 $sesDur = $durationMs - $sesDurBaseline
 if ($sesDur -lt 0) {
+    # baseline 大于当前值：旧状态文件是墙钟语义（升级后 baseline 失效）或状态损坏，
+    # 重置 baseline，ses_dur 从 0 重新开始
+    $sesDurBaseline = $durationMs
     $sesDur = 0
 } elseif ($sesDurBaseline -eq 0 -and $sesDur -gt 0 -and -not $isNewProject) {
     # Migration: old state file had no baseline field (null → 0).

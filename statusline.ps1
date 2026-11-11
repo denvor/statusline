@@ -104,8 +104,8 @@ $outputTokens = if ($data.context_window.total_output_tokens) { [int]$data.conte
 $curIn  = if ($data.context_window.current_usage.input_tokens)  { [int]$data.context_window.current_usage.input_tokens }  else { 0 }
 $curOut = if ($data.context_window.current_usage.output_tokens) { [int]$data.context_window.current_usage.output_tokens } else { 0 }
 
-# Session time
-$durationMs = if ($data.cost.total_duration_ms) { [int64]$data.cost.total_duration_ms } else { 0 }
+# Session time (active only — API call time, excludes idle/sleep)
+$durationMs = if ($data.cost.total_api_duration_ms) { [int64]$data.cost.total_api_duration_ms } else { 0 }
 
 # Git branch
 $gitBranch = ''

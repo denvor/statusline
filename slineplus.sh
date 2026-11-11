@@ -41,7 +41,8 @@ IFS=$'\x1f' read -r project_name model_raw context_pct context_size \
         (.context_window.current_usage.cache_creation_input_tokens // 0),
         (.context_window.current_usage.cache_read_input_tokens // 0),
         (.session_id // "unknown"),
-        (.cost.total_duration_ms // 0),
+        # 活跃时间（仅 API 调用耗时，不含空闲/挂机/睡眠）
+        (.cost.total_api_duration_ms // 0),
         ((.worktree.name // "") + (.workspace.git_worktree // "") | length > 0),
         (.workspace.repo.host // ""),
         (.workspace.project_dir // .cwd // ""),
@@ -275,7 +276,7 @@ else
         if [ "$dur_delta" -lt 0 ]; then
             dur_delta=$duration_ms
         elif [ "$dur_delta" -gt 300000 ]; then
-            # Gap > 5 min: likely session restart, reset baseline and skip gap
+            # 活跃时间不会因空闲跳跃，异常大的增量只可能来自状态损坏，丢弃
             ses_dur_baseline=$duration_ms
             dur_delta=0
         fi
@@ -286,6 +287,9 @@ fi
 # ses_dur = duration_ms - baseline (0 at session start, grows during session)
 ses_dur=$((duration_ms - ses_dur_baseline))
 if [ "$ses_dur" -lt 0 ]; then
+    # baseline 大于当前值：旧状态文件是墙钟语义（升级后 baseline 失效）或状态损坏，
+    # 重置 baseline，ses_dur 从 0 重新开始
+    ses_dur_baseline=$duration_ms
     ses_dur=0
 elif [ "$ses_dur_baseline" -eq 0 ] && [ "$ses_dur" -gt 0 ] && [ "$is_new_project" -eq 0 ]; then
     # Migration: old state file had no baseline field (null → 0).

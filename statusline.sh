@@ -64,7 +64,8 @@ IFS=$'\x1f' read -r project_name model_raw context_pct context_size \
         (.context_window.total_output_tokens // 0),
         (.context_window.current_usage.input_tokens // 0),
         (.context_window.current_usage.output_tokens // 0),
-        (.cost.total_duration_ms // 0),
+        # 活跃时间（仅 API 调用耗时，不含空闲/挂机/睡眠）
+        (.cost.total_api_duration_ms // 0),
         ((.worktree.name // "") + (.workspace.git_worktree // "") | length > 0),
         (.workspace.project_dir // .cwd // ""),
         (.effort.level // ""),
