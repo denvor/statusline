@@ -28,10 +28,26 @@ mkdir -p "$cache_dir"
 session_id=$(echo "$raw_json" | jq -r '.session_id // "default"')
 cache_file="${cache_dir}/${session_id}"
 
-has_context=$(echo "$raw_json" | jq '.context_window != null and (.context_window.total_input_tokens | type == "number" and . > 0)')
+# 一次 jq 取三态：
+#   has_context — total_input_tokens > 0，可正常渲染
+#   recache_ok  — prompt 缓存仍在（只是当前助手消息 usage 未就绪）= 流式中间帧
+#   has_null    — context_window / total_input_tokens 缺失，无效帧
+has_context=false; recache_ok=false; has_null=true
+IFS=$'\t' read -r has_context recache_ok has_null < <(echo "$raw_json" | jq -r '
+    [
+        (.context_window != null and (.context_window.total_input_tokens | type == "number" and . > 0)),
+        ((.prompt_cache.recache_tokens_if_cold // 0) | type == "number" and . > 0),
+        (.context_window == null or .context_window.total_input_tokens == null)
+    ] | @tsv')
+cacheable=1
 if [ "$has_context" != "true" ]; then
-    [ -f "$cache_file" ] && cat "$cache_file"
-    exit 0
+    if [ "$has_null" = "true" ] || [ "$recache_ok" = "true" ]; then
+        # 无效帧 / 流式中间帧：复用缓存行，避免 ctx 闪 0
+        [ -f "$cache_file" ] && cat "$cache_file"
+        exit 0
+    fi
+    # compact 之后：帧内无可用上下文，正常渲染（显示 0），且不覆盖缓存
+    cacheable=0
 fi
 
 IFS=$'\x1f' read -r project_name model_raw context_pct context_size \
@@ -234,6 +250,8 @@ for key in "${display_order[@]}"; do
 done
 
 printf '%s\n' "$line"
-# 缓存有效输出，供下次中间态 JSON 时复用
-echo "$line" > "$cache_file" 2>/dev/null || true
+# 缓存有效输出，供下次中间态 JSON 时复用（compact 后的 0 帧不写，避免污染缓存）
+if [ "$cacheable" -eq 1 ]; then
+    echo "$line" > "$cache_file" 2>/dev/null || true
+fi
 exit 0

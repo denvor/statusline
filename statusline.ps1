@@ -35,9 +35,24 @@ if (-not (Test-Path $cacheDir)) { New-Item -ItemType Directory -Path $cacheDir -
 $sessionId = if ($data.session_id) { $data.session_id } else { 'default' }
 $cacheFile = Join-Path $cacheDir $sessionId
 
-if ($null -eq $data.context_window -or $null -eq $data.context_window.total_input_tokens -or $data.context_window.total_input_tokens -eq 0) {
-    if (Test-Path $cacheFile) { Get-Content $cacheFile -Raw }
-    exit 0
+# 三态判定：
+#   $hasContext — total_input_tokens > 0，可正常渲染
+#   $recacheOk  — prompt 缓存仍在（只是当前助手消息 usage 未就绪）= 流式中间帧
+#   $hasNull    — context_window / total_input_tokens 缺失，无效帧
+$hasContext = ($null -ne $data.context_window) -and ($null -ne $data.context_window.total_input_tokens) -and ($data.context_window.total_input_tokens -gt 0)
+$recacheTokens = 0
+try { $recacheTokens = [int64]$data.prompt_cache.recache_tokens_if_cold } catch {}
+$recacheOk = $recacheTokens -gt 0
+$hasNull = ($null -eq $data.context_window) -or ($null -eq $data.context_window.total_input_tokens)
+$cacheable = $true
+if (-not $hasContext) {
+    if ($hasNull -or $recacheOk) {
+        # 无效帧 / 流式中间帧：复用缓存行，避免 ctx 闪 0
+        if (Test-Path $cacheFile) { Get-Content $cacheFile -Raw }
+        exit 0
+    }
+    # compact 之后：帧内无可用上下文，正常渲染（显示 0），且不覆盖缓存
+    $cacheable = $false
 }
 
 # 3. Extract fields
@@ -234,6 +249,6 @@ $line = $parts -join $sep
 
 Write-Output $line
 
-# 缓存有效输出，供下次中间态 JSON 时复用
-try { $line | Set-Content $cacheFile -NoNewline -ErrorAction Stop } catch {}
+# 缓存有效输出，供下次中间态 JSON 时复用（compact 后的 0 帧不写，避免污染缓存）
+if ($cacheable) { try { $line | Set-Content $cacheFile -NoNewline -ErrorAction Stop } catch {} }
 
