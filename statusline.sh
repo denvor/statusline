@@ -28,7 +28,7 @@ mkdir -p "$cache_dir"
 session_id=$(echo "$raw_json" | jq -r '.session_id // "default"')
 cache_file="${cache_dir}/${session_id}"
 
-has_context=$(echo "$raw_json" | jq '.context_window.total_input_tokens != null')
+has_context=$(echo "$raw_json" | jq '.context_window != null and (.context_window.total_input_tokens | type == "number" and . > 0)')
 if [ "$has_context" != "true" ]; then
     [ -f "$cache_file" ] && cat "$cache_file"
     exit 0

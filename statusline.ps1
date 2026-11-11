@@ -35,7 +35,7 @@ if (-not (Test-Path $cacheDir)) { New-Item -ItemType Directory -Path $cacheDir -
 $sessionId = if ($data.session_id) { $data.session_id } else { 'default' }
 $cacheFile = Join-Path $cacheDir $sessionId
 
-if ($null -eq $data.context_window -or $null -eq $data.context_window.total_input_tokens) {
+if ($null -eq $data.context_window -or $null -eq $data.context_window.total_input_tokens -or $data.context_window.total_input_tokens -eq 0) {
     if (Test-Path $cacheFile) { Get-Content $cacheFile -Raw }
     exit 0
 }
