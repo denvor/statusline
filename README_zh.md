@@ -1,8 +1,10 @@
 # Claude Code 状态栏美化脚本
 
-[![version](https://img.shields.io/badge/version-1.0.5-green.svg)](CHANGELOG_zh.md) [![en](https://img.shields.io/badge/lang-English-red.svg)](README.md)
+[![version](https://img.shields.io/badge/version-1.0.6-green.svg)](CHANGELOG_zh.md) [![en](https://img.shields.io/badge/lang-English-red.svg)](README.md)
 
-基于 PowerShell / bash 的 [Claude Code](https://code.claude.com/docs/zh-CN/overview) 自定义状态栏，专为**第三方 API 用户**（如 DeepSeek）设计。在终端底部单行显示项目名、模型名、上下文用量、Token 消耗和**自定义定价的费用**。
+基于 PowerShell / bash 的 [Claude Code](https://code.claude.com/docs/zh-CN/overview) 自定义状态栏，专为**第三方 API 用户**（如 DeepSeek）设计。它读取 Claude Code 通过 stdin 传入的 JSON 快照，在终端底部单行显示项目名、模型名、上下文用量、单次调用 Token 和会话时间。无状态文件、无 JSONL 扫描、无需配置定价。
+
+> **需要费用统计？** 完整版 `slineplus` 提供按项目独立的状态文件、按模型定价和 subagent 费用扫描 —— 但它**不再维护**（模型价格变化频繁）。见底部 [slineplus（完整版，停止维护）](#slineplus完整版停止维护)。
 
 ## 效果预览
 
@@ -11,7 +13,7 @@
 ```
 ┌─ 状态栏（显示在 Claude Code 底部）─────────────────────────────────────────────────┐
 │ [PR] hello │ DeepSeek V4 Pro T H │ ========------------ 42% │ ctx: 18.5K/3.2K     │
-│ /200K │ call: i5K o1.2K @github │ time 5m / 19h39m │ ¥0.004 / ¥0.001 / ¥0.009                       │
+│ /200.0K │ call: i5.0K o1.2K │ git:main │ time 5m                                        │
 └──────────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -22,14 +24,13 @@
 | 项目名 | `[PR] hello` | 青色粗体 |
 | 模型 | `DeepSeek V4 Pro` | 洋红 |
 | 思考模式 | `T` | 青色 |
-| 推理强度 | `H` | 黄色 |
+| 推理强度 | `H` | 亮黄色 |
 | 上下文进度条 | `========------------` | 绿 → 黄 → 红（随用量变化） |
 | 百分比 | `42%` | 与进度条同色，粗体 |
-| 上下文占用 + 上限 | `ctx: 18.5K/3.2K /200K` | 亮白色 + 进度条颜色 |
-| 单次调用 | `call: i5K o1.2K` | 亮白色 |
-| Git 信息 | `git:main @github` | 青色 |
-| 会话 / 累计耗时 | `time 5m / 19h39m` | 蓝色 |
-| 会话 / subagent / 项目费用 | `¥0.004 / ¥0.001 / ¥0.009` | 绿 → 黄 → 红（随金额变化） |
+| 上下文占用 + 上限 | `ctx: 18.5K/3.2K /200.0K` | 亮白色 + 进度条颜色 |
+| 单次调用 | `call: i5.0K o1.2K` | 亮白色 |
+| Git 分支 | `git:main` | 青色 |
+| 会话时间 | `time 5m` | 蓝色 |
 
 ## 功能特性
 
@@ -37,17 +38,11 @@
 - **模型显示** — 美化 DeepSeek、Claude 系列模型名称
 - **上下文进度条** — 20 字符宽度，50%/75% 阈值切换绿/黄/红色
 - **Token 详情** — 同时显示上下文窗口占用（`ctx:`）和最近一次调用用量（`call:`）
-- **自定义定价** — 从 `statusline.ini` 读取，输入/输出/缓存写入/缓存读取分别定价
-- **可配置显示** — 通过 `[display]` 段控制显示哪些字段及顺序（共 10 个可选字段）
-- **多币种** — 支持 `¥`（CNY）或 `$`（USD）
-- **按项目独立追踪** — 不同项目目录的费用分别统计，存储在各自独立的 `statusline_state_<项目>.json` 文件中
-- **会话/项目费用分离** — 显示 `会话费用/项目累计费用`；新会话清零左侧，项目费用持续累加
-- **按模型计费** — 每条消息使用该消息对应模型的 INI 定价计算费用并累加，切换模型不影响历史费用。JSONL subagent 扫描也按模型名称分组，每组用对应价格算费。
-- **防抖去重** — 检测并跳过 Claude Code 300ms 防抖导致的重复调用
+- **可配置显示** — 通过 `[display]` 段控制显示哪些字段及顺序（共 9 个可选字段）
+- **会话时间** — 显示 `time 5m`，数据来自 `cost.total_api_duration_ms`，仅统计活跃 API 耗时，不含空闲 / 睡眠（见常见问题）
 - **按会话缓存** — 最后一次有效输出按 `session_id` 缓存，中间态帧直接复用，流式输出期间 `ctx:` 不会闪回 0。`/compact` 之后状态栏会刻意显示 `0/0`，直到 compact 后的第一条消息才恢复（见常见问题）
-- **Git 信息** — 分支名 + 远程仓库（如 `@github`）
+- **Git 信息** — 分支名
 - **Worktree 感知** — git worktree 中显示 `[WT]` 前缀
-- **会话 / 累计耗时** — 显示 `time Xm / YhZm`（当前会话耗时 / 项目累计耗时），数据来自 `cost.total_api_duration_ms`，仅统计活跃 API 耗时，不含空闲 / 睡眠（见常见问题）
 - **零依赖（Windows）** — 纯 PowerShell，不需要 `jq` 或 Node.js。Mac/Linux 需要 bash 3.2+ 和 `jq`
 
 ## 环境要求
@@ -79,7 +74,7 @@ powershell -File install.ps1
 bash install.sh
 ```
 
-脚本会自动将所需文件复制到 `~/.claude/statusline/`，并将 `~/.claude/` 下已有的 `statusline_state_*.json` 状态文件迁移到新子目录。
+脚本会将状态栏脚本复制到 `~/.claude/statusline/`。
 
 ### 2. 安装脚本也会修改 `settings.json`
 
@@ -89,36 +84,115 @@ bash install.sh
 
 重启 Claude Code（或启动新会话）。发送任意消息后底部即显示状态栏。
 
-### 4. 设置定价（可选）
+### 4. 配置显示字段（可选）
 
-编辑 `~/.claude/statusline/statusline.ini`，设置你所用模型的定价：
+编辑 `~/.claude/statusline/statusline.ini`，选择要显示的字段及顺序：
 
 ```ini
-# 默认定价 — 未匹配到具体模型时使用
-[default]
-input_price=3.00
-output_price=6.00
-cache_write_price=3.00
-cache_read_price=0.025
-currency=CNY
-
-# 模型专属定价 — 按 Claude Code 传入的模型 ID 精确匹配
-[deepseek-v4-pro]
-input_price=3.00
-output_price=6.00
-cache_write_price=3.00
-cache_read_price=0.025
-currency=CNY
+[display]
+# 可选字段: project, model, thinking, effort, bar, ctx, call, git, time
+order = project, model, thinking, effort, bar, ctx, call, git, time
 ```
 
-- `currency=CNY` → 显示 `¥`
-- `currency=USD` → 显示 `$`
-- 定价按 `[模型ID]` 分段，脚本根据当前使用的模型自动匹配
-- 未匹配到时回退到 `[default]` 段
+未在 `order` 中列出的字段会被隐藏。可见字段之间自动插入 `|` 分隔符。
 
 ## 配置说明
 
-### `statusline.ini` 参数
+### `statusline.ini`
+
+精简版只读取 `[display]` 段 —— 不需要配置定价。
+
+| 键 | 说明 | 默认值 |
+|----|------|--------|
+| `order` | 逗号分隔的字段名列表，按此顺序显示 | 全部 9 个字段 |
+
+## 输出布局
+
+```
+[图标] 项目名 │ 模型 │ T │ H │ ========------ 42% │ ctx: 18.5K/3.2K /200.0K │ call: i5.0K o1.2K │ git:main │ time 5m
+  ①      ②    ③   ④             ⑤                         ⑥                  ⑦                ⑧          ⑨
+```
+
+| # | 字段 | 渲染效果 | 颜色 |
+|---|------|---------|------|
+| ① | 项目 | `[PR] hello` | 青色粗体 |
+| ② | 模型 | `DeepSeek V4 Pro` | 洋红 |
+| ③ | 思考模式 | `T` | 青色 |
+| ④ | 推理强度 | `H` | 亮黄色 |
+| ⑤ | 进度条 + 百分比 | `========------------ 42%` | 绿→黄→红 |
+| ⑥ | 上下文占用 + 上限 | `ctx: 18.5K/3.2K /200.0K` | 亮白色 + 进度条颜色 |
+| ⑦ | 单次调用 | `call: i5.0K o1.2K` | 亮白色 |
+| ⑧ | Git | `git:main` | 青色 |
+| ⑨ | 会话时间 | `time 5m` | 蓝色 |
+
+> **图标说明：** `T` = 扩展思考已开启，`H`/`XH`/`M`/`L`/`X`/`U`/`A` = 推理强度（高/极高/中/低/最大/ultracode/自动），`[WT]` = 处于 git worktree 中。空字段（如无思考模式、无 git 分支）自动隐藏。字段顺序由 `[display]` 段的 `order` 控制。
+
+## 工作原理
+
+Claude Code 在每次助手消息后通过 stdin 向脚本传入 JSON 快照。脚本执行流程：
+
+1. 解析 JSON（`jq`）
+2. 从 `context_window.current_usage` 提取单次调用的 Token 数
+3. 格式化上下文进度条、Token 数字和会话时间
+4. 当帧内没有可用的上下文数据时（流式输出中间帧），复用缓存行，避免 `ctx:` 闪回 0
+5. 输出一行 ANSI 彩色文本到 stdout
+
+输出行按 `session_id` 缓存在系统临时目录（`/tmp/statusline/<session_id>`，Windows 为 `%TEMP%\statusline`）。无状态文件、无 JSONL 扫描。
+
+## 常见问题
+
+### 时间是如何计算的？空闲时间算在内吗？
+
+**不算 —— 只统计活跃的 API 耗时。** 脚本读取 Claude Code 状态栏快照里的 `cost.total_api_duration_ms`，该字段只累加等待 API 响应的时间。空闲、整晚挂着终端不动、机器睡眠都不计入。
+
+这和 Claude Code 同时提供的 `cost.total_duration_ms` 不同 —— 后者是纯粹的墙钟时间（从会话启动开始一直增长，人离开也在走）。状态栏刻意不使用该字段。
+
+由于状态栏是事件驱动的，数字只在 Claude Code 重新运行时更新，所以它是随着你的消息跳跃式增长，而不是逐秒走动。
+
+### `/compact` 之后上下文显示什么？
+
+**显示 `0/0`（0%），直到你发送下一条消息。** 这是有意为之 —— 与其显示一个 compact 之前的陈旧数字，不如诚实地显示 0。
+
+原因：Claude Code 不会在状态栏快照里上报 compact 后的上下文。compact 刚结束时，每一帧的 `context_window.total_input_tokens` 都是 `0`，而且 `prompt_cache.recache_tokens_if_cold` 是 `null`；真实数值要等 compact 之后的第一条助手消息才会回来。脚本据此区分三种帧：
+
+| 帧类型 | `total_input_tokens` | `recache_tokens_if_cold` | 显示 |
+|---|---|---|---|
+| 正常 | `> 0` | 同值 | 正常（`ctx: 18.5K/3.2K`）|
+| 流式中间帧 | `0` | `> 0` | 复用缓存行，不闪 0 |
+| `/compact` 之后 | `0` | `null` | `0/0`（下一条消息后恢复真实值）|
+
+有两个原因让这个 `0` 看起来一直是 0：
+
+1. **状态栏是事件驱动的。** Claude Code 只在快照变化时重新执行状态栏命令 —— 除非你在 `settings.json` 里设置 `statusLine.refreshInterval`，否则没有定时器。所以 compact 后闲着不动时，状态栏不会重新渲染。
+2. **这个 0 帧不会被写进缓存。** 写进去会覆盖掉最后一次有效行，所以脚本只渲染、不更新缓存。你下一条消息后的第一帧真实数据会立即恢复显示。
+
+## slineplus（完整版，停止维护）
+
+> ⚠️ **slineplus 不再维护。** 模型价格变化频繁，按模型累计的费用追踪维护成本过高。**建议使用上面的精简版 `statusline`** —— 它持续维护，覆盖项目名、模型、上下文和时间显示。
+
+### slineplus 额外提供
+
+- **按项目独立的状态文件** — `statusline_state_<项目>.json`，每个项目一个
+- **累计追踪** — 会话 / 累计的 Token、耗时和费用
+- **自定义定价** — 从 `statusline.ini` 按模型读取价格，输入 / 输出 / 缓存写入 / 缓存读取分别定价
+- **Subagent 费用扫描** — 定期读取 `~/.claude/projects/<项目>/*.jsonl`，按模型为 subagent 用量计价
+- **三值费用显示** — `会话费用 / subagent 费用 / 项目总费用`
+
+### 安装 slineplus
+
+**Windows：**
+```powershell
+powershell -File install_plus.ps1
+```
+
+**Mac / Linux：**
+```bash
+bash install_plus.sh
+```
+
+脚本会将 `slineplus.ps1` / `slineplus.sh` 复制到 `~/.claude/statusline/`，迁移已有的 `statusline_state_*.json` 状态文件，并把 `settings.json` 指向完整版。
+
+### 定价配置
 
 定价通过 `[模型ID]` 分段配置，脚本根据当前模型自动匹配。段名必须与 Claude Code 传入的 `model.display_name` 原始值完全一致（如 `deepseek-v4-pro`）。
 
@@ -135,6 +209,22 @@ currency=CNY
 
 每个 `[模型ID]` 段内可独立配置以上 5 个 key。如果 INI 文件缺失，使用硬编码默认值。
 
+```ini
+[default]
+input_price=3.00
+output_price=6.00
+cache_write_price=3.00
+cache_read_price=0.025
+currency=CNY
+
+[deepseek-v4-pro]
+input_price=3.00
+output_price=6.00
+cache_write_price=3.00
+cache_read_price=0.025
+currency=CNY
+```
+
 ### `[jsonl]` 段
 
 控制 JSONL 扫描 subagent 费用的频率：
@@ -149,38 +239,12 @@ sync_interval = 10
 |----|------|--------|
 | `sync_interval` | JSONL 扫描周期（两次扫描之间的触发次数）。增大值减少 I/O，减小值更快反映 subagent 费用 | `10` |
 
-> **说明：** JSONL 扫描递归读取 `~/.claude/projects/<项目>/` 下所有 `*.jsonl` 文件，解析 `type == "assistant"` 且包含 `usage` 数据的消息，通过 `(时间戳, input, output)` 签名去重。会话启动时自动快照基线，确保只统计当前会话期间的 token 消耗。
+> **说明：** JSONL 扫描递归读取 `~/.claude/projects/<项目>/` 下所有 `*.jsonl` 文件，解析 `type == "assistant"` 且包含 `usage` 数据的消息，通过 `(模型, 时间戳, input, output)` 签名去重。会话启动时自动快照基线，确保只统计当前会话期间的 token 消耗。
 
-### `[display]` 段
-
-控制状态栏中显示哪些字段及排列顺序：
-
-```ini
-[display]
-# 可选字段: project, model, thinking, effort, bar, ctx, call, git, time, cost
-order = project, model, thinking, effort, bar, ctx, call, git, time, cost
-```
-
-| 键 | 说明 | 默认值 |
-|----|------|--------|
-| `order` | 逗号分隔的字段名列表，按此顺序显示 | 全部 10 个字段 |
-
-未在 `order` 中列出的字段会被隐藏。可见字段之间自动插入 `|` 分隔符。
-
-### Token 类型说明
-
-| 类型 | 计费时机 |
-|------|----------|
-| 输入（Input） | 每次发送给模型的提示词 |
-| 输出（Output） | 模型生成的每个 Token |
-| 缓存写入（Cache write） | 写入 Claude 提示缓存的 Token |
-| 缓存读取（Cache read） | 命中缓存的 Token（通常为输入价格的 1-25%） |
-
-## 输出布局
+### 输出布局
 
 ```
-[图标] 项目名 │ 模型 │ T │ H │ ========------ 42% │ ctx: 18.5K/3.2K /200K │ call: i5K o1.2K │ git:main @github │ time 5m / 19h39m │ ¥0.004 / ¥0.001 / ¥0.009
-  ①      ②    ③   ④             ⑤                         ⑥                  ⑦                  ⑧             ⑨            ⑩
+[图标] 项目名 │ 模型 │ T │ H │ ========------ 42% │ ctx: 18.5K/3.2K /200.0K │ call: i5.0K o1.2K │ git:main @github │ time 5m / 19h39m │ ¥0.004 / ¥0.001 / ¥0.009
 ```
 
 | # | 字段 | 渲染效果 | 颜色 |
@@ -188,47 +252,29 @@ order = project, model, thinking, effort, bar, ctx, call, git, time, cost
 | ① | 项目 | `[PR] hello` | 青色粗体 |
 | ② | 模型 | `DeepSeek V4 Pro` | 洋红 |
 | ③ | 思考模式 | `T` | 青色 |
-| ④ | 推理强度 | `H` | 黄色 |
+| ④ | 推理强度 | `H` | 亮黄色 |
 | ⑤ | 进度条 + 百分比 | `========------------ 42%` | 绿→黄→红 |
-| ⑥ | 上下文占用 + 上限 | `ctx: 18.5K/3.2K /200K` | 亮白色 + 进度条颜色 |
-| ⑦ | 单次调用 | `call: i5K o1.2K` | 亮白色 |
+| ⑥ | 上下文占用 + 上限 | `ctx: 18.5K/3.2K /200.0K` | 亮白色 + 进度条颜色 |
+| ⑦ | 单次调用 | `call: i5.0K o1.2K` | 亮白色 |
 | ⑧ | Git | `git:main @github` | 青色 |
 | ⑨ | 会话 / 累计耗时 | `time 5m / 19h39m` | 蓝色 |
 | ⑩ | 会话 / subagent / 项目费用 | `¥0.004 / ¥0.001 / ¥0.009` | 绿→黄→红 |
 
-> **图标说明：** `T` = 扩展思考已开启，`H`/`X`/`M`/`L`/`!` = 推理强度（高/极高/中/低/最大），`[WT]` = 处于 git worktree 中。空字段（如无思考模式、无 git 分支）自动隐藏。字段顺序由 `[display]` 段的 `order` 控制。
+### 工作原理
 
-## 工作原理
+在精简版流程之外，slineplus 还会：
 
-Claude Code 在每次助手消息后通过 stdin 向脚本传入 JSON 快照。脚本执行流程：
-
-1. 解析 JSON（`ConvertFrom-Json`）
-2. 从 `context_window.current_usage` 提取单次调用的 Token 数
-3. 读写 `statusline_state_<项目>.json` 中的累计数据（每个项目一个独立文件，区分会话费用和累计费用）。费用按模型存储：每条消息用其对应模型的 INI 定价实时计算并累加，而非事后用当前模型价格重算。
-4. **定期扫描 `~/.claude/projects/<项目>/*.jsonl`** 获取 subagent API 调用的 token 用量，按 `model` 字段分组，每组用对应模型的 INI 价格计算费用并累加到项目总费用。同时通过会话启动时的基线快照隔离本次会话的 subagent 费用。
-5. 从 `statusline.ini` 加载当前模型的定价（缺失则用默认值）
-6. 费用直接用已累加的存储值，不再从 token 重算
-7. 当 `current_usage` 与上次相同时跳过累加（防止防抖重复计入）
-8. 输出一行 ANSI 彩色文本到 stdout，显示主会话费用 / subagent 费用 / 项目总费用，以及会话耗时 / 项目累计耗时
+1. 读写 `statusline_state_<项目>.json` 中的累计数据（每个项目一个独立文件，区分会话费用和累计费用）。费用按模型存储：每条消息用其对应模型的 INI 定价实时计算并累加，而非事后用当前模型价格重算。
+2. **定期扫描 `~/.claude/projects/<项目>/*.jsonl`** 获取 subagent API 调用的 token 用量，按 `model` 字段分组，每组用对应模型的 INI 价格计算费用并累加到项目总费用。同时通过会话启动时的基线快照隔离本次会话的 subagent 费用。
+3. 从 `statusline.ini` 加载当前模型的定价（缺失则用默认值）
+4. 当 `current_usage` 与上次相同时跳过累加（防止防抖重复计入）
+5. 输出主会话费用 / subagent 费用 / 项目总费用，以及会话耗时 / 项目累计耗时
 
 状态文件按项目目录独立追踪。新会话启动时会话费用清零，项目累计费用保留。累计耗时同样跨会话持续累加。
 
-## 文件说明
+### 常见问题
 
-| 文件 | 用途 |
-|------|------|
-| `slineplus.ps1` | Windows 脚本（完整版）— 读取 stdin，累计 Token，有状态文件 + JSONL 扫描 |
-| `slineplus.sh` | Mac / Linux 脚本（完整版）— 功能相同，使用 jq 解析 JSON |
-| `statusline.ps1` | Windows 脚本（精简版）— 纯 stdin，无状态文件 |
-| `statusline.sh` | Mac / Linux 脚本（精简版）— 纯 stdin，无状态文件 |
-| `statusline.ini` | 用户可编辑的定价配置 |
-| `statusline_state_<项目>.json` | 自动生成 — 每个项目一个独立文件，持久化 Token 累计数据（会话 + 累计 + JSONL 扫描结果 + 基线） |
-| `install_plus.ps1` / `install_plus.sh` | slineplus 安装脚本 — 复制文件到 `~/.claude/statusline/` 并迁移旧状态文件 |
-| `install.ps1` / `install.sh` | statusline（精简版）安装脚本 — 复制文件到 `~/.claude/statusline/` |
-
-## 常见问题
-
-### 费用是怎么计算的？
+#### 费用是怎么计算的？
 
 费用由 **4 种 Token 的累计消耗 × 对应单价** 计算得出：
 
@@ -243,7 +289,7 @@ Claude Code 在每次助手消息后通过 stdin 向脚本传入 JSON 快照。�
 
 单价从 `statusline.ini` 读取，按当前模型的 `[section]` 匹配，未匹配时回退到 `[default]`。
 
-### Token 是从项目开始累计的，还是只算当前会话？
+#### Token 是从项目开始累计的，还是只算当前会话？
 
 **两者同时追踪，且按模型计费。** 费用显示格式为 `主会话费用 / subagent 费用 / 项目总费用`：
 
@@ -253,7 +299,7 @@ Claude Code 在每次助手消息后通过 stdin 向脚本传入 JSON 快照。�
 
 Token 按**项目目录**独立追踪 — 不同项目有各自的计数器，存储在各自的 `statusline_state_<项目>.json` 文件中。
 
-### 为什么 `claude -c` / `claude --continue` 不会重置会话费用？
+#### 为什么 `claude -c` / `claude --continue` 不会重置会话费用？
 
 `claude --continue`（别名 `-c`）会保留上次对话的 `session_id`。脚本检测到「相同的 session_id」后判定为同一次会话，继续累加而不是重置。
 
@@ -267,7 +313,7 @@ claude --continue --fork-session
 
 这会创建一个新的 `session_id` 但加载上次对话，脚本会将会话费用清零，同时保留项目累计费用。
 
-### 如何重置累计时间 / 累计费用？
+#### 如何重置累计时间 / 累计费用？
 
 如果想清空项目的累计时间（`time XhYm` 的右侧值）和累计费用，有两种方式：
 
@@ -289,15 +335,7 @@ claude --continue --fork-session
 
 > 项目名称 `<>` 中的部分对应工作目录路径脱敏后的形式（如 `/home/user/work/my-project` 对应 `_home_user_work_my-project`）。
 
-### 时间是如何计算的？空闲时间算在内吗？
-
-**不算 —— 只统计活跃的 API 耗时。** 精简版和完整版都读取 Claude Code 状态栏快照里的 `cost.total_api_duration_ms`，该字段只累加等待 API 响应的时间。空闲、整晚挂着终端不动、机器睡眠都不计入。
-
-这和 Claude Code 同时提供的 `cost.total_duration_ms` 不同 —— 后者是纯粹的墙钟时间（从会话启动开始一直增长，人离开也在走）。状态栏刻意不使用该字段。
-
-由于状态栏是事件驱动的，数字只在 Claude Code 重新运行时更新，所以它是随着你的消息跳跃式增长，而不是逐秒走动。
-
-### 开启新会话时如何计算？
+#### 开启新会话时如何计算？
 
 当 Claude Code 以一个**新的** `session_id`（与状态文件中存储的不同）启动会话时，脚本会：
 
@@ -309,25 +347,6 @@ claude --continue --fork-session
 这是 `claude`（全新启动）、`claude --continue --fork-session` 和 `/resume` 的正常行为 — 这三种方式都会分配新的 `session_id`。
 
 > 如果手动删除或损坏了 `statusline_state_<项目>.json`，对应项目的累计记录会丢失，从零开始重新计算。
-
-### `/compact` 之后上下文显示什么？
-
-**显示 `0/0`（0%），直到你发送下一条消息。** 这是有意为之 —— 与其显示一个 compact 之前的陈旧数字，不如诚实地显示 0。
-
-原因：Claude Code 不会在状态栏快照里上报 compact 后的上下文。compact 刚结束时，每一帧的 `context_window.total_input_tokens` 都是 `0`，而且 `prompt_cache.recache_tokens_if_cold` 是 `null`；真实数值要等 compact 之后的第一条助手消息才会回来。脚本据此区分三种帧：
-
-| 帧类型 | `total_input_tokens` | `recache_tokens_if_cold` | 显示 |
-|---|---|---|---|
-| 正常 | `> 0` | 同值 | 正常（`ctx: 18.5K/3.2K`）|
-| 流式中间帧 | `0` | `> 0` | 复用缓存行，不闪 0 |
-| `/compact` 之后 | `0` | `null` | `0/0`（下一条消息后恢复真实值）|
-
-有两个原因让这个 `0` 看起来一直是 0：
-
-1. **状态栏是事件驱动的。** Claude Code 只在快照变化时重新执行状态栏命令 —— 除非你在 `settings.json` 里设置 `statusLine.refreshInterval`，否则没有定时器。所以 compact 后闲着不动时，状态栏不会重新渲染。
-2. **这个 0 帧不会被写进缓存。** 写进去会覆盖掉最后一次有效行，所以脚本只渲染、不更新缓存。你下一条消息后的第一帧真实数据会立即恢复显示。
-
-> 完整版（`slineplus.sh` / `slineplus.ps1`）完全没有按会话缓存 —— 它永远按当前帧的内容渲染，所以任何清零帧（包括流式中间帧）都会显示 `0/0`。
 
 ## License
 

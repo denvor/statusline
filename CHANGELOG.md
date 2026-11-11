@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.0.6] - 2026-11-11
+
+### Changed
+- **README.md + README_zh.md** — Restructured around the simplified `statusline`, which is what users actually run. The slineplus material (state files, per-model pricing, JSONL scanning, cumulative/three-value cost, session-reset behavior) moved to a dedicated section at the bottom, preceded by a deprecation notice: slineplus is no longer maintained because model prices change too frequently, and the simplified version is recommended.
+- **README.md + README_zh.md** — Corrected several statements that did not match actual behavior: the simplified version never renders a cost field (removed in v1.0.0), needs no pricing configuration, and shows only the git branch (no `@remote`).
+
 ## [1.0.5] - 2026-11-11
 
 ### Fixed
