@@ -1,6 +1,6 @@
 # Claude Code Status Line
 
-[![version](https://img.shields.io/badge/version-1.0.6-green.svg)](CHANGELOG.md) [![zh-CN](https://img.shields.io/badge/语言-中文-blue.svg)](README_zh.md)
+[![version](https://img.shields.io/badge/version-1.0.7-green.svg)](CHANGELOG.md) [![zh-CN](https://img.shields.io/badge/语言-中文-blue.svg)](README_zh.md)
 
 A PowerShell / bash custom status line for [Claude Code](https://code.claude.com/docs/en/overview), designed for users of **third-party API providers** (DeepSeek, etc.). It reads the JSON snapshot Claude Code pipes to stdin and renders a single line at the bottom of your terminal: project, model, context usage, per-call tokens, and session time. No state files, no JSONL scanning, no pricing config.
 
@@ -13,7 +13,7 @@ A PowerShell / bash custom status line for [Claude Code](https://code.claude.com
 ```
 ┌─ Status bar (bottom of Claude Code) ─────────────────────────────────────────────┐
 │ [PR] hello │ DeepSeek V4 Pro T H │ ========------------ 42% │ ctx: 18.5K/3.2K     │
-│ /200.0K │ call: i5.0K o1.2K │ git:main │ time 5m                                        │
+│ /200.0K │ call: i5.0K o1.2K │ git:main │ time 5m / 1h57m                                  │
 └──────────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -30,7 +30,7 @@ Each segment is color-coded for quick scanning:
 | Context occupancy + limit | `ctx: 18.5K/3.2K /200.0K` | Bright white + bar color |
 | Per-call tokens | `call: i5.0K o1.2K` | Bright white |
 | Git branch | `git:main` | Cyan |
-| Session time | `time 5m` | Blue |
+| Session time | `time 5m / 1h57m` | Blue |
 
 ## Features
 
@@ -39,7 +39,7 @@ Each segment is color-coded for quick scanning:
 - **Context progress bar** — 20-char bar, color shifts green → yellow → red at 50% and 75%
 - **Token details** — context window occupancy (`ctx:`) and per-call usage (`call:`)
 - **Configurable display** — show/hide and reorder fields via `[display]` section in `statusline.ini` (9 fields available)
-- **Session time** — displays `time 5m`, from `cost.total_api_duration_ms` — active API time only, idle/sleep excluded (see FAQ)
+- **Session time** — displays `time 5m / 1h57m` (active API time / wall-clock time), from `cost.total_api_duration_ms` and `cost.total_duration_ms` (see FAQ)
 - **Per-session cache** — the last valid line is cached per `session_id` and re-emitted on intermediate frames, so `ctx:` never flashes to 0 while a response is streaming. After `/compact` the bar deliberately shows `0/0` until the first message following the compaction (see FAQ).
 - **Git info** — branch name
 - **Worktree aware** — shows `[WT]` prefix inside git worktrees
@@ -109,7 +109,7 @@ The simplified version only reads the `[display]` section — no pricing configu
 ## Output Layout
 
 ```
-[icon] project │ Model │ T │ H │ ========------ 42% │ ctx: 18.5K/3.2K /200.0K │ call: i5.0K o1.2K │ git:main │ time 5m
+[icon] project │ Model │ T │ H │ ========------ 42% │ ctx: 18.5K/3.2K /200.0K │ call: i5.0K o1.2K │ git:main │ time 5m / 1h57m
   ①       ②    ③   ④             ⑤                         ⑥                  ⑦                ⑧          ⑨
 ```
 
@@ -123,7 +123,7 @@ The simplified version only reads the `[display]` section — no pricing configu
 | ⑥ | Context occupancy + limit | `ctx: 18.5K/3.2K /200.0K` | Bright white + bar color |
 | ⑦ | Per-call tokens | `call: i5.0K o1.2K` | Bright white |
 | ⑧ | Git | `git:main` | Cyan |
-| ⑨ | Session time | `time 5m` | Blue |
+| ⑨ | Session time | `time 5m / 1h57m` | Blue |
 
 > **Icons:** `T` = extended thinking, `H`/`XH`/`M`/`L`/`X`/`U`/`A` = effort level (high/xhigh/medium/low/max/ultracode/auto), `[WT]` = git worktree. Empty fields (e.g., no thinking, no git branch) are automatically hidden. Field order is controlled by `order` in `[display]`.
 
@@ -141,13 +141,16 @@ The line is cached per `session_id` under the system temp dir (`/tmp/statusline/
 
 ## FAQ
 
-### How is the time calculated? Does idle time count?
+### How is the time calculated? What do the two values mean?
 
-**No — only active API time is counted.** The script reads `cost.total_api_duration_ms` from Claude Code's statusline snapshot, which accumulates only the time spent waiting on API responses. Idle time, leaving the terminal open overnight, and machine sleep are all excluded.
+**Two values are shown: `api / wall`.**
 
-This is deliberately different from `cost.total_duration_ms`, which Claude Code also provides and which is pure wall-clock time since the session started — it keeps growing while you are away. The statusline does not use that field.
+- **Left (API time)** — `cost.total_api_duration_ms`, which accumulates only the time spent waiting on API responses. Idle time, leaving the terminal open overnight, and machine sleep are all excluded.
+- **Right (wall-clock time)** — `cost.total_duration_ms`, which is how long the session has been alive, idle time included.
 
-Because the statusline is event-driven, the number only moves when Claude Code re-runs the command, so it advances in jumps aligned with your messages rather than second by second.
+Both fields are restored and continue accumulating when you resume a session with `claude -c` / `--resume`, so neither of them resets on resume. Only a brand-new session (new `session_id`) starts from zero, and `/clear` resets both.
+
+Because the statusline is event-driven, the numbers only move when Claude Code re-runs the command, so they advance in jumps aligned with your messages rather than second by second.
 
 ### What does the context display show after `/compact`?
 

@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.0.7] - 2026-11-11
+
+### Changed
+- **statusline.sh + statusline.ps1** — Time now shows two values: `time 5m / 1h57m` (active API time / wall-clock time). The left value is `cost.total_api_duration_ms` (idle/sleep excluded); the right value is `cost.total_duration_ms` (includes idle). Both are restored and continue accumulating on `claude -c` / `--resume`.
+- **README.md + README_zh.md** — Updated preview, feature list, output layout, and the time FAQ to document the two-value display.
+
 ## [1.0.6] - 2026-11-11
 
 ### Changed

@@ -52,7 +52,7 @@ fi
 
 IFS=$'\x1f' read -r project_name model_raw context_pct context_size \
     input_tokens output_tokens \
-    cur_in cur_out duration_ms \
+    cur_in cur_out duration_ms wall_duration_ms \
     is_worktree project_dir effort_level thinking_enabled \
     < <(echo "$raw_json" | jq -r '
     [
@@ -66,6 +66,8 @@ IFS=$'\x1f' read -r project_name model_raw context_pct context_size \
         (.context_window.current_usage.output_tokens // 0),
         # 活跃时间（仅 API 调用耗时，不含空闲/挂机/睡眠）
         (.cost.total_api_duration_ms // 0),
+        # 墙钟时间（含空闲/睡眠；resume 时恢复累加）
+        (.cost.total_duration_ms // 0),
         ((.worktree.name // "") + (.workspace.git_worktree // "") | length > 0),
         (.workspace.project_dir // .cwd // ""),
         (.effort.level // ""),
@@ -147,6 +149,7 @@ format_duration() {
     echo "${hr}h${rem}m"
 }
 duration_str=$(format_duration "$duration_ms")
+wall_duration_str=$(format_duration "$wall_duration_ms")
 
 # ── 7. Number formatting ─────────────────────────────────────────────
 format_num() {
@@ -238,7 +241,13 @@ if [ -n "$git_branch" ]; then
 fi
 fields[git]="$git_field"
 
-[ -n "$duration_str" ] && fields[time]="${bblue}time ${rst}${duration_str}" || fields[time]=""
+if [ -z "$duration_str" ] && [ -z "$wall_duration_str" ]; then
+    fields[time]=""
+else
+    if [ -z "$duration_str" ]; then duration_str="0s"; fi
+    if [ -z "$wall_duration_str" ]; then wall_duration_str="0s"; fi
+    fields[time]="${bblue}time ${rst}${duration_str} ${dim}/${rst} ${wall_duration_str}"
+fi
 line=""
 sep=" ${dim}|${rst} "
 for key in "${display_order[@]}"; do

@@ -1,6 +1,6 @@
 # Claude Code 状态栏美化脚本
 
-[![version](https://img.shields.io/badge/version-1.0.6-green.svg)](CHANGELOG_zh.md) [![en](https://img.shields.io/badge/lang-English-red.svg)](README.md)
+[![version](https://img.shields.io/badge/version-1.0.7-green.svg)](CHANGELOG_zh.md) [![en](https://img.shields.io/badge/lang-English-red.svg)](README.md)
 
 基于 PowerShell / bash 的 [Claude Code](https://code.claude.com/docs/zh-CN/overview) 自定义状态栏，专为**第三方 API 用户**（如 DeepSeek）设计。它读取 Claude Code 通过 stdin 传入的 JSON 快照，在终端底部单行显示项目名、模型名、上下文用量、单次调用 Token 和会话时间。无状态文件、无 JSONL 扫描、无需配置定价。
 
@@ -13,7 +13,7 @@
 ```
 ┌─ 状态栏（显示在 Claude Code 底部）─────────────────────────────────────────────────┐
 │ [PR] hello │ DeepSeek V4 Pro T H │ ========------------ 42% │ ctx: 18.5K/3.2K     │
-│ /200.0K │ call: i5.0K o1.2K │ git:main │ time 5m                                        │
+│ /200.0K │ call: i5.0K o1.2K │ git:main │ time 5m / 1h57m                                  │
 └──────────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -30,7 +30,7 @@
 | 上下文占用 + 上限 | `ctx: 18.5K/3.2K /200.0K` | 亮白色 + 进度条颜色 |
 | 单次调用 | `call: i5.0K o1.2K` | 亮白色 |
 | Git 分支 | `git:main` | 青色 |
-| 会话时间 | `time 5m` | 蓝色 |
+| 会话时间 | `time 5m / 1h57m` | 蓝色 |
 
 ## 功能特性
 
@@ -39,7 +39,7 @@
 - **上下文进度条** — 20 字符宽度，50%/75% 阈值切换绿/黄/红色
 - **Token 详情** — 同时显示上下文窗口占用（`ctx:`）和最近一次调用用量（`call:`）
 - **可配置显示** — 通过 `[display]` 段控制显示哪些字段及顺序（共 9 个可选字段）
-- **会话时间** — 显示 `time 5m`，数据来自 `cost.total_api_duration_ms`，仅统计活跃 API 耗时，不含空闲 / 睡眠（见常见问题）
+- **会话时间** — 显示 `time 5m / 1h57m`（活跃 API 耗时 / 墙钟时间），数据来自 `cost.total_api_duration_ms` 和 `cost.total_duration_ms`（见常见问题）
 - **按会话缓存** — 最后一次有效输出按 `session_id` 缓存，中间态帧直接复用，流式输出期间 `ctx:` 不会闪回 0。`/compact` 之后状态栏会刻意显示 `0/0`，直到 compact 后的第一条消息才恢复（见常见问题）
 - **Git 信息** — 分支名
 - **Worktree 感知** — git worktree 中显示 `[WT]` 前缀
@@ -109,7 +109,7 @@ order = project, model, thinking, effort, bar, ctx, call, git, time
 ## 输出布局
 
 ```
-[图标] 项目名 │ 模型 │ T │ H │ ========------ 42% │ ctx: 18.5K/3.2K /200.0K │ call: i5.0K o1.2K │ git:main │ time 5m
+[图标] 项目名 │ 模型 │ T │ H │ ========------ 42% │ ctx: 18.5K/3.2K /200.0K │ call: i5.0K o1.2K │ git:main │ time 5m / 1h57m
   ①      ②    ③   ④             ⑤                         ⑥                  ⑦                ⑧          ⑨
 ```
 
@@ -123,7 +123,7 @@ order = project, model, thinking, effort, bar, ctx, call, git, time
 | ⑥ | 上下文占用 + 上限 | `ctx: 18.5K/3.2K /200.0K` | 亮白色 + 进度条颜色 |
 | ⑦ | 单次调用 | `call: i5.0K o1.2K` | 亮白色 |
 | ⑧ | Git | `git:main` | 青色 |
-| ⑨ | 会话时间 | `time 5m` | 蓝色 |
+| ⑨ | 会话时间 | `time 5m / 1h57m` | 蓝色 |
 
 > **图标说明：** `T` = 扩展思考已开启，`H`/`XH`/`M`/`L`/`X`/`U`/`A` = 推理强度（高/极高/中/低/最大/ultracode/自动），`[WT]` = 处于 git worktree 中。空字段（如无思考模式、无 git 分支）自动隐藏。字段顺序由 `[display]` 段的 `order` 控制。
 
@@ -141,11 +141,14 @@ Claude Code 在每次助手消息后通过 stdin 向脚本传入 JSON 快照。�
 
 ## 常见问题
 
-### 时间是如何计算的？空闲时间算在内吗？
+### 时间是如何计算的？两个值分别是什么？
 
-**不算 —— 只统计活跃的 API 耗时。** 脚本读取 Claude Code 状态栏快照里的 `cost.total_api_duration_ms`，该字段只累加等待 API 响应的时间。空闲、整晚挂着终端不动、机器睡眠都不计入。
+**显示两个值：`API 时间 / 墙钟时间`。**
 
-这和 Claude Code 同时提供的 `cost.total_duration_ms` 不同 —— 后者是纯粹的墙钟时间（从会话启动开始一直增长，人离开也在走）。状态栏刻意不使用该字段。
+- **左（API 时间）** — `cost.total_api_duration_ms`，只累加等待 API 响应的时间。空闲、整晚挂着终端不动、机器睡眠都不计入。
+- **右（墙钟时间）** — `cost.total_duration_ms`，会话从启动到现在的实际存活时长，含空闲。
+
+用 `claude -c` / `--resume` 恢复会话时，两个字段都会恢复并继续累加，不会重置。只有全新会话（新 `session_id`）才从 0 开始，`/clear` 会将两者清零。
 
 由于状态栏是事件驱动的，数字只在 Claude Code 重新运行时更新，所以它是随着你的消息跳跃式增长，而不是逐秒走动。
 

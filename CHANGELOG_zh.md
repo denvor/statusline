@@ -1,5 +1,11 @@
 # 更新日志
 
+## [1.0.7] - 2026-11-11
+
+### 变更
+- **statusline.sh + statusline.ps1** — 时间改为显示两个值：`time 5m / 1h57m`（活跃 API 耗时 / 墙钟时间）。左侧是 `cost.total_api_duration_ms`（不含空闲 / 睡眠）；右侧是 `cost.total_duration_ms`（含空闲）。用 `claude -c` / `--resume` 恢复会话时两者都会恢复并继续累加。
+- **README.md + README_zh.md** — 更新效果预览、功能特性、输出布局和时间相关常见问题，说明双值显示。
+
 ## [1.0.6] - 2026-11-11
 
 ### 变更

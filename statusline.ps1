@@ -107,6 +107,9 @@ $curOut = if ($data.context_window.current_usage.output_tokens) { [int]$data.con
 # Session time (active only — API call time, excludes idle/sleep)
 $durationMs = if ($data.cost.total_api_duration_ms) { [int64]$data.cost.total_api_duration_ms } else { 0 }
 
+# Wall-clock time (includes idle/sleep; restored and accumulated on resume)
+$wallDurationMs = if ($data.cost.total_duration_ms) { [int64]$data.cost.total_duration_ms } else { 0 }
+
 # Git branch
 $gitBranch = ''
 $projectDir = if ($data.workspace.project_dir) { $data.workspace.project_dir } else { $data.cwd }
@@ -155,6 +158,7 @@ function Format-Duration($ms) {
     return "${hr}h${rem}m"
 }
 $durationStr = Format-Duration $durationMs
+$wallDurationStr = Format-Duration $wallDurationMs
 
 # 6. Number formatting
 function Format-Num($n) {
@@ -236,7 +240,13 @@ if ($gitBranch) {
 }
 $fields['git'] = $gitField
 
-$fields['time'] = if ($durationStr) { "${bblue}time ${rst}${durationStr}" } else { '' }
+if ($durationStr -or $wallDurationStr) {
+    if (-not $durationStr) { $durationStr = '0s' }
+    if (-not $wallDurationStr) { $wallDurationStr = '0s' }
+    $fields['time'] = "${bblue}time ${rst}${durationStr} ${dim}/${rst} ${wallDurationStr}"
+} else {
+    $fields['time'] = ''
+}
 
 # Build line
 $parts = @()
