@@ -261,7 +261,7 @@ if ($sesDur -lt 0) {
 }
 
 # Migration: seed stored costs from old state that lacked them
-if (-not $isNewProject -and $sessionCostStored -eq 0.0 -and $cumulativeInput -gt 0 -and $cumulativeOutput -gt 0) {
+if (-not $isNewProject -and $sessionCostStored -eq 0.0 -and $cumIn -gt 0 -and $cumOut -gt 0) {
     $sessionCostStored    = ($sesIn/1000000.0)*$pricing['input_price'] + ($sesOut/1000000.0)*$pricing['output_price'] + ($sesCW/1000000.0)*$pricing['cache_write_price'] + ($sesCR/1000000.0)*$pricing['cache_read_price']
     $cumulativeCostStored = ($cumIn/1000000.0)*$pricing['input_price'] + ($cumOut/1000000.0)*$pricing['output_price'] + ($cumCW/1000000.0)*$pricing['cache_write_price'] + ($cumCR/1000000.0)*$pricing['cache_read_price']
 }
@@ -299,7 +299,7 @@ if ($jsonlSyncInterval -gt 0 -and $jsonlScanCount -ge $jsonlSyncInterval) {
                         $jcw_local = if ($null -ne $jsusage.cache_creation_input_tokens) { [int]$jsusage.cache_creation_input_tokens } else { 0 }
                         $jcr_local = if ($null -ne $jsusage.cache_read_input_tokens) { [int]$jsusage.cache_read_input_tokens } else { 0 }
                         if ($ji -eq 0 -and $jo -eq 0 -and $jcw_local -eq 0 -and $jcr_local -eq 0) { return }
-                        $jssig = "$($jsdata.timestamp)|$ji|$jo"
+                        $jssig = "$($jsdata.message.model)|$($jsdata.timestamp)|$ji|$jo"
                         if ($jsseen.ContainsKey($jssig)) { return }
                         $jsseen[$jssig] = $true
                         $model = if ($jsdata.message.model) { $jsdata.message.model } else { 'unknown' }
@@ -505,7 +505,7 @@ $fields = [ordered]@{}
 $fields['project']  = "${bold}${bcyan}[${projectIcon}] ${projectName}${rst}"
 $fields['model']    = "${bmagenta}${modelDisplay}${rst}"
 $fields['thinking'] = if ($thinkingIcon) { "${bcyan}${thinkingIcon}${rst}" } else { '' }
-$fields['effort']   = if ($effortIcon)   { "${yellow}${effortIcon}${rst}" }      else { '' }
+$fields['effort']   = if ($effortIcon)   { "${byellow}${effortIcon}${rst}" }      else { '' }
 $fields['bar']      = "${bar} ${bold}${barColor}${pctStr}%${rst}"
 $fields['ctx']      = "ctx: ${bwhite}${inputStr}/${outputStr}${rst} ${dim}/${bold}${barColor}${contextSizeStr}${rst}"
 $fields['call']     = "call: ${bwhite}i${rst}${bwhite}${callInStr}${rst} ${bwhite}o${rst}${bwhite}${callOutStr}${rst}"

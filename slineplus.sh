@@ -302,7 +302,7 @@ fi
 # Migration: seed stored costs from old state that lacked them
 if [ "$is_new_project" -eq 0 ] && \
    [ "$(awk -v sc="$session_cost_stored" 'BEGIN { print (sc == 0.0) ? 1 : 0 }')" -eq 1 ] && \
-   [ "$cumulative_input" -gt 0 ] && [ "$cumulative_output" -gt 0 ]; then
+   [ "$cum_in" -gt 0 ] && [ "$cum_out" -gt 0 ]; then
     read session_cost_stored cumulative_cost_stored <<< $(awk \
         -v si="$ses_in" -v so="$ses_out" -v scw="$ses_cw" -v scr="$ses_cr" \
         -v ci="$cum_in" -v co="$cum_out" -v ccw="$cum_cw" -v ccr="$cum_cr" \
@@ -336,7 +336,7 @@ sync_jsonl_cost() {
         xargs -0 cat 2>/dev/null | \
         jq -s '
             [ .[] | select(.type == "assistant")
-                  | select(.message.usage // empty | (.input_tokens // 0) + (.output_tokens // 0) > 0)
+                  | select(.message.usage // empty | ((.input_tokens // 0) + (.output_tokens // 0) + (.cache_creation_input_tokens // 0) + (.cache_read_input_tokens // 0)) > 0)
                   | { model: (.message.model // "unknown"), timestamp, usage: .message.usage }
             ] as $all
             | $all
